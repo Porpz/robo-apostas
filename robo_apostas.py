@@ -19,7 +19,7 @@ def estatisticas_time(team_id):
 
     headers = {"X-Auth-Token": API_TOKEN}
 
-    url = f"https://api.football-data.org/v4/teams/{team_id}/matches?status=FINISHED&limit=10"
+    url = f"https://api.football-data.org/v4/teams/{team_id}/matches?status=FINISHED&limit=8"
 
     r = requests.get(url, headers=headers)
 
@@ -63,9 +63,10 @@ def analisar():
     inicio = hoje.strftime("%Y-%m-%d")
     fim = (hoje + timedelta(days=7)).strftime("%Y-%m-%d")
 
-    top_over25 = []
-    top_btts = []
-    top_over15 = []
+    over25 = []
+    btts = []
+    over15 = []
+    ranking = []
 
     for codigo, nome in LIGAS.items():
 
@@ -93,65 +94,80 @@ def analisar():
             ataque_fora,defesa_fora = estatisticas_time(id_fora)
 
             gols_esperados = (
-                ataque_casa*0.4 +
-                ataque_fora*0.4 +
-                defesa_casa*0.1 +
-                defesa_fora*0.1
+                ataque_casa*0.45 +
+                ataque_fora*0.45 +
+                defesa_casa*0.05 +
+                defesa_fora*0.05
             )
 
             prob_over15 = min(int((gols_esperados/2)*100),95)
-            prob_over25 = min(int((gols_esperados/3)*100),90)
-            prob_btts = min(int(((ataque_casa+ataque_fora)/3)*100),85)
+            prob_over25 = min(int((gols_esperados/2.8)*100),90)
+            prob_btts = min(int(((ataque_casa+ataque_fora)/2.6)*100),85)
 
-            odd_justa_over25 = round(100/prob_over25,2) if prob_over25>0 else 0
+            odd_over25 = round(100/prob_over25,2) if prob_over25>0 else 0
 
-            jogo_info = {
-                "jogo": f"{casa} x {fora}",
-                "liga": nome,
-                "gols": round(gols_esperados,2),
-                "over15": prob_over15,
-                "over25": prob_over25,
-                "btts": prob_btts,
-                "odd_justa": odd_justa_over25
+            jogo = {
+                "jogo":f"{casa} x {fora}",
+                "liga":nome,
+                "gols":round(gols_esperados,2),
+                "over15":prob_over15,
+                "over25":prob_over25,
+                "btts":prob_btts,
+                "odd":odd_over25
             }
 
             if prob_over25 > 55:
-                top_over25.append(jogo_info)
+                over25.append(jogo)
 
-            if prob_btts > 65:
-                top_btts.append(jogo_info)
+            if prob_btts > 55:
+                btts.append(jogo)
 
-            if prob_over15 > 75:
-                top_over15.append(jogo_info)
+            if prob_over15 > 70:
+                over15.append(jogo)
 
-    st.subheader("⭐ TOP OVER 2.5")
+            ranking.append((prob_over25 + prob_btts + prob_over15, jogo))
 
-    for j in top_over25[:10]:
+    ranking.sort(reverse=True)
+
+    st.subheader("⭐ TOP 10 APOSTAS DO DIA")
+
+    for score,j in ranking[:10]:
 
         st.write("---")
         st.write(j["jogo"])
         st.write(j["liga"])
         st.write("⚽ Gols esperados:",j["gols"])
-        st.write("📊 Probabilidade Over 2.5:",j["over25"],"%")
-        st.write("💰 Odd justa mínima:",j["odd_justa"])
+        st.write("📈 Over 1.5:",j["over15"],"%")
+        st.write("📊 Over 2.5:",j["over25"],"%")
+        st.write("🤝 Ambas marcam:",j["btts"],"%")
+        st.write("💰 Odd justa Over 2.5:",j["odd"])
+
+    st.subheader("📊 TOP OVER 2.5")
+
+    for j in over25[:10]:
+
+        st.write("---")
+        st.write(j["jogo"])
+        st.write(j["liga"])
+        st.write("Probabilidade:",j["over25"],"%")
 
     st.subheader("🤝 TOP AMBAS MARCAM")
 
-    for j in top_btts[:10]:
+    for j in btts[:10]:
 
         st.write("---")
         st.write(j["jogo"])
         st.write(j["liga"])
-        st.write("🤝 Probabilidade:",j["btts"],"%")
+        st.write("Probabilidade:",j["btts"],"%")
 
     st.subheader("⚽ TOP OVER 1.5")
 
-    for j in top_over15[:10]:
+    for j in over15[:10]:
 
         st.write("---")
         st.write(j["jogo"])
         st.write(j["liga"])
-        st.write("📈 Probabilidade:",j["over15"],"%")
+        st.write("Probabilidade:",j["over15"],"%")
 
 if st.button("🔎 ANALISAR JOGOS"):
     analisar()
