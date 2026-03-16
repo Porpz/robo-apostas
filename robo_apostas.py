@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 from datetime import datetime, timedelta
 
-API_TOKEN = "SEU_TOKEN_AQUI"
+API_TOKEN = "845305378d0846c7b4ce6e9b12652ffd"
 
 LIGAS = {
     "BSA": "Brasileirão Série A",
