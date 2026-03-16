@@ -115,10 +115,10 @@ def analisar():
                 "odd_justa": odd_justa_over25
             }
 
-            if prob_over25 > 65:
+            if prob_over25 > 55:
                 top_over25.append(jogo_info)
 
-            if prob_btts > 60:
+            if prob_btts > 65:
                 top_btts.append(jogo_info)
 
             if prob_over15 > 75:
