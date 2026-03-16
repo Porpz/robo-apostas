@@ -13,7 +13,7 @@ LIGAS = {
 
 st.set_page_config(page_title="Robô de Apostas", layout="wide")
 
-st.title("⚽ Robô de Análise de Apostas")
+st.title("⚽ Robô Profissional de Análise de Apostas")
 
 def estatisticas_time(team_id):
 
@@ -26,10 +26,9 @@ def estatisticas_time(team_id):
     gols_marcados = 0
     gols_sofridos = 0
     jogos = 0
-    ultimos = []
 
     if r.status_code != 200:
-        return 1.2,1.2,[1,1,1,1,1]
+        return 1.2,1.2
 
     dados = r.json()
 
@@ -47,34 +46,12 @@ def estatisticas_time(team_id):
 
         gols_marcados += gm
         gols_sofridos += gs
-        ultimos.append(gm+gs)
-
         jogos += 1
 
     if jogos == 0:
-        return 1.2,1.2,[1,1,1,1,1]
+        return 1.2,1.2
 
-    return gols_marcados/jogos, gols_sofridos/jogos, ultimos[:5]
-
-
-def simular(gols):
-
-    placares = []
-
-    if gols >= 1.5:
-        placares.append("1x1")
-    if gols >= 2:
-        placares.append("2x1")
-    if gols >= 2.3:
-        placares.append("2x2")
-    if gols >= 2.6:
-        placares.append("3x1")
-    if gols >= 3:
-        placares.append("3x2")
-
-    prob_over = int((gols/4)*100)
-
-    return prob_over, placares
+    return gols_marcados/jogos, gols_sofridos/jogos
 
 
 def analisar():
@@ -84,9 +61,11 @@ def analisar():
     hoje = datetime.utcnow()
 
     inicio = hoje.strftime("%Y-%m-%d")
-    fim = (hoje + timedelta(days=10)).strftime("%Y-%m-%d")
+    fim = (hoje + timedelta(days=7)).strftime("%Y-%m-%d")
 
-    ranking = []
+    top_over25 = []
+    top_btts = []
+    top_over15 = []
 
     for codigo, nome in LIGAS.items():
 
@@ -95,7 +74,6 @@ def analisar():
         r = requests.get(url, headers=headers)
 
         if r.status_code != 200:
-            st.write("Erro API:", r.status_code)
             continue
 
         dados = r.json()
@@ -111,53 +89,69 @@ def analisar():
             id_casa = j["homeTeam"]["id"]
             id_fora = j["awayTeam"]["id"]
 
-            ataque_casa,defesa_casa,gols_casa = estatisticas_time(id_casa)
-            ataque_fora,defesa_fora,gols_fora = estatisticas_time(id_fora)
-
-            ritmo = (sum(gols_casa)+sum(gols_fora))/10
-
-            if ritmo < 1.3:
-                continue
+            ataque_casa,defesa_casa = estatisticas_time(id_casa)
+            ataque_fora,defesa_fora = estatisticas_time(id_fora)
 
             gols_esperados = (
-                ataque_casa*0.35 +
-                ataque_fora*0.35 +
-                defesa_casa*0.15 +
-                defesa_fora*0.15 +
-                ritmo*0.5
+                ataque_casa*0.4 +
+                ataque_fora*0.4 +
+                defesa_casa*0.1 +
+                defesa_fora*0.1
             )
 
-            prob_over, placares = simular(gols_esperados)
+            prob_over15 = min(int((gols_esperados/2)*100),95)
+            prob_over25 = min(int((gols_esperados/3)*100),90)
+            prob_btts = min(int(((ataque_casa+ataque_fora)/3)*100),85)
 
-            prob_btts = int(((ataque_casa + ataque_fora)/4)*100)
+            odd_justa_over25 = round(100/prob_over25,2) if prob_over25>0 else 0
 
-            prob = int((gols_esperados/3.5)*100)
+            jogo_info = {
+                "jogo": f"{casa} x {fora}",
+                "liga": nome,
+                "gols": round(gols_esperados,2),
+                "over15": prob_over15,
+                "over25": prob_over25,
+                "btts": prob_btts,
+                "odd_justa": odd_justa_over25
+            }
 
-            score = round((prob/10),1)
+            if prob_over25 > 65:
+                top_over25.append(jogo_info)
 
-            ranking.append((score,casa,fora,nome,prob_over,prob_btts,placares,gols_esperados,j))
+            if prob_btts > 60:
+                top_btts.append(jogo_info)
 
-    ranking.sort(reverse=True)
+            if prob_over15 > 75:
+                top_over15.append(jogo_info)
 
-    st.subheader("⭐ TOP APOSTAS")
+    st.subheader("⭐ TOP OVER 2.5")
 
-    for i,jogo in enumerate(ranking[:15]):
-
-        data = jogo[8]["utcDate"][:10]
-        hora = jogo[8]["utcDate"][11:16]
+    for j in top_over25[:10]:
 
         st.write("---")
-        st.write(f"### {jogo[1]} x {jogo[2]}")
-        st.write(jogo[3])
-        st.write(f"{data} {hora}")
+        st.write(j["jogo"])
+        st.write(j["liga"])
+        st.write("⚽ Gols esperados:",j["gols"])
+        st.write("📊 Probabilidade Over 2.5:",j["over25"],"%")
+        st.write("💰 Odd justa mínima:",j["odd_justa"])
 
-        st.write("⚽ Gols esperados:", round(jogo[7],2))
-        st.write("📊 Probabilidade Over 2.5:", jogo[4],"%")
-        st.write("🤝 Probabilidade Ambas Marcam:", jogo[5],"%")
+    st.subheader("🤝 TOP AMBAS MARCAM")
 
-        st.write("🎯 Placares prováveis:", ", ".join(jogo[6]))
-        st.write("⭐ Score da aposta:", jogo[0],"/10")
+    for j in top_btts[:10]:
 
+        st.write("---")
+        st.write(j["jogo"])
+        st.write(j["liga"])
+        st.write("🤝 Probabilidade:",j["btts"],"%")
+
+    st.subheader("⚽ TOP OVER 1.5")
+
+    for j in top_over15[:10]:
+
+        st.write("---")
+        st.write(j["jogo"])
+        st.write(j["liga"])
+        st.write("📈 Probabilidade:",j["over15"],"%")
 
 if st.button("🔎 ANALISAR JOGOS"):
     analisar()
