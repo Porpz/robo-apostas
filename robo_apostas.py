@@ -61,7 +61,7 @@ def analisar():
 
     hoje = datetime.utcnow()
     inicio = hoje.strftime("%Y-%m-%d")
-    fim = (hoje + timedelta(days=7)).strftime("%Y-%m-%d")
+fim = (hoje + timedelta(days=1)).strftime("%Y-%m-%d")
 
     over25 = []
     btts = []
