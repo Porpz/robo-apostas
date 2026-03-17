@@ -7,10 +7,6 @@ API_TOKEN = "845305378d0846c7b4ce6e9b12652ffd"
 st.set_page_config(page_title="Robô PRO", layout="wide")
 st.title("⚽ Robô PRO de Apostas")
 
-LIGAS = {
-    "BSA": "Brasileirão Série A"
-}
-
 HEADERS = {"X-Auth-Token": API_TOKEN}
 
 
@@ -23,7 +19,6 @@ def buscar_jogos_brasileirao(inicio, fim):
 
 @st.cache_data(ttl=300)
 def buscar_partidas_time(team_id):
-    # 50 ajuda a encontrar mais jogos casa/fora sem precisar pedir várias vezes
     url = f"https://api.football-data.org/v4/teams/{team_id}/matches?status=FINISHED&limit=50"
     r = requests.get(url, headers=HEADERS, timeout=20)
 
@@ -104,36 +99,18 @@ def analisar_jogo(stats_casa, stats_fora):
         2
     )
 
-    # over 2.5 por padrão dos últimos jogos
-    over_casa = sum(
-        1 for f, s in zip(casa_feitos, casa_sofridos) if (f + s) >= 3
-    )
-    over_fora = sum(
-        1 for f, s in zip(fora_feitos, fora_sofridos) if (f + s) >= 3
-    )
-
+    over_casa = sum(1 for f, s in zip(casa_feitos, casa_sofridos) if (f + s) >= 3)
+    over_fora = sum(1 for f, s in zip(fora_feitos, fora_sofridos) if (f + s) >= 3)
     total_jogos_over = len(casa_feitos) + len(fora_feitos)
     prob_over25 = int(((over_casa + over_fora) / total_jogos_over) * 100) if total_jogos_over else 0
 
-    # ambas marcam
-    btts_casa = sum(
-        1 for f, s in zip(casa_feitos, casa_sofridos) if f > 0 and s > 0
-    )
-    btts_fora = sum(
-        1 for f, s in zip(fora_feitos, fora_sofridos) if f > 0 and s > 0
-    )
-
+    btts_casa = sum(1 for f, s in zip(casa_feitos, casa_sofridos) if f > 0 and s > 0)
+    btts_fora = sum(1 for f, s in zip(fora_feitos, fora_sofridos) if f > 0 and s > 0)
     total_jogos_btts = len(casa_feitos) + len(fora_feitos)
     prob_btts = int(((btts_casa + btts_fora) / total_jogos_btts) * 100) if total_jogos_btts else 0
 
-    # over 1.5
-    over15_casa = sum(
-        1 for f, s in zip(casa_feitos, casa_sofridos) if (f + s) >= 2
-    )
-    over15_fora = sum(
-        1 for f, s in zip(fora_feitos, fora_sofridos) if (f + s) >= 2
-    )
-
+    over15_casa = sum(1 for f, s in zip(casa_feitos, casa_sofridos) if (f + s) >= 2)
+    over15_fora = sum(1 for f, s in zip(fora_feitos, fora_sofridos) if (f + s) >= 2)
     total_jogos_over15 = len(casa_feitos) + len(fora_feitos)
     prob_over15 = int(((over15_casa + over15_fora) / total_jogos_over15) * 100) if total_jogos_over15 else 0
 
@@ -236,3 +213,44 @@ def analisar():
 
     for item in jogos[:10]:
         casa = item["casa"]
+        fora = item["fora"]
+        stats_casa = item["stats_casa"]
+        stats_fora = item["stats_fora"]
+        a = item["analise"]
+
+        st.divider()
+        st.subheader(f"⚽ {item['jogo']}")
+        st.write(a["sinal"])
+        st.write(f"**Mercado principal:** {a['mercado']}")
+        st.write(f"**Confiança:** {a['confianca']}")
+        st.write(
+            f"**Base usada:** {casa} em casa: {len(stats_casa['casa_feitos'])} jogos | "
+            f"{fora} fora: {len(stats_fora['fora_feitos'])} jogos"
+        )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.write(f"### 🏠 {casa} (CASA)")
+            mostrar_lista_rotulo("⚽ Gols feitos:", stats_casa["casa_feitos"])
+            mostrar_lista_rotulo("🥅 Gols sofridos:", stats_casa["casa_sofridos"])
+            st.write(f"Média feitos: {a['media_casa_feitos']}")
+            st.write(f"Média sofridos: {a['media_casa_sofridos']}")
+
+        with col2:
+            st.write(f"### ✈️ {fora} (FORA)")
+            mostrar_lista_rotulo("⚽ Gols feitos:", stats_fora["fora_feitos"])
+            mostrar_lista_rotulo("🥅 Gols sofridos:", stats_fora["fora_sofridos"])
+            st.write(f"Média feitos: {a['media_fora_feitos']}")
+            st.write(f"Média sofridos: {a['media_fora_sofridos']}")
+
+        st.write(f"**⚽ Gols esperados:** {a['gols_esperados']}")
+        st.write(f"**📈 Prob Over 1.5:** {a['prob_over15']}%")
+        st.write(f"**📊 Prob Over 2.5:** {a['prob_over25']}%")
+        st.write(f"**🤝 Prob Ambas Marcam:** {a['prob_btts']}%")
+        st.write(f"**💰 Odd justa Over 2.5:** {a['odd_justa_over25']}")
+        st.write(f"**💰 Odd justa Ambas Marcam:** {a['odd_justa_btts']}")
+
+
+if st.button("🔎 ANALISAR JOGOS"):
+    analisar()
