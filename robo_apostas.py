@@ -2,147 +2,129 @@ import streamlit as st
 import requests
 from datetime import datetime, timedelta
 
-API_TOKEN = "845305378d0846c7b4ce6e9b12652ffd"
+API_KEY = "SEU_TOKEN_AQUI"
 
-st.set_page_config(page_title="Robô de Lucro", layout="wide")
-st.title("⚽ Robô Profissional de Apostas (Foco em Lucro)")
+headers = {
+    "x-apisports-key": API_KEY
+}
 
+# =========================
+# FUNÇÃO BUSCAR JOGOS
+# =========================
+def buscar_jogos():
+    hoje = datetime.now().strftime("%Y-%m-%d")
 
-def estatisticas_time(team_id):
+    url = f"https://v3.football.api-sports.io/fixtures?date={hoje}"
 
-    headers = {"X-Auth-Token": API_TOKEN}
-    url = f"https://api.football-data.org/v4/teams/{team_id}/matches?status=FINISHED&limit=30"
+    response = requests.get(url, headers=headers)
 
-    try:
-        r = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        st.error(f"Erro API: {response.status_code}")
+        return []
 
-        if r.status_code != 200:
-            return {}
+    dados = response.json()
 
-        dados = r.json()
+    jogos_filtrados = []
 
-        casa_feitos = []
-        casa_sofridos = []
-        fora_feitos = []
-        fora_sofridos = []
+    ligas_desejadas = [
+        71,   # Brasileirão Série A
+        72,   # Série B
+        13,   # Libertadores
+        11    # Sul-Americana
+    ]
 
-        for j in dados.get("matches", []):
+    for jogo in dados["response"]:
+        liga_id = jogo["league"]["id"]
 
-            if j["score"]["fullTime"]["home"] is None:
-                continue
+        if liga_id in ligas_desejadas:
+            jogos_filtrados.append(jogo)
 
-            if j["homeTeam"]["id"] == team_id:
-
-                if len(casa_feitos) < 10:
-                    casa_feitos.append(j["score"]["fullTime"]["home"])
-                    casa_sofridos.append(j["score"]["fullTime"]["away"])
-
-            else:
-
-                if len(fora_feitos) < 10:
-                    fora_feitos.append(j["score"]["fullTime"]["away"])
-                    fora_sofridos.append(j["score"]["fullTime"]["home"])
-
-        return {
-            "casa_feitos": casa_feitos,
-            "casa_sofridos": casa_sofridos,
-            "fora_feitos": fora_feitos,
-            "fora_sofridos": fora_sofridos
-        }
-
-    except:
-        return {}
+    return jogos_filtrados
 
 
-def analisar():
+# =========================
+# FUNÇÃO PEGAR ÚLTIMOS JOGOS
+# =========================
+def ultimos_jogos(time_id):
+    url = f"https://v3.football.api-sports.io/fixtures?team={time_id}&last=10"
 
-    headers = {"X-Auth-Token": API_TOKEN}
+    response = requests.get(url, headers=headers)
 
-    hoje = datetime.utcnow()
-    inicio = hoje.strftime("%Y-%m-%d")
-    fim = (hoje + timedelta(days=1)).strftime("%Y-%m-%d")
+    if response.status_code != 200:
+        return []
 
-    url = f"https://api.football-data.org/v4/competitions/BSA/matches?dateFrom={inicio}&dateTo={fim}"
+    return response.json()["response"]
 
-    r = requests.get(url, headers=headers)
 
-    if r.status_code != 200:
-        st.error("Erro API")
-        return
+# =========================
+# FUNÇÃO CALCULAR ESTATÍSTICAS
+# =========================
+def calcular_stats(time_id, is_home=True):
+    jogos = ultimos_jogos(time_id)
 
-    dados = r.json()
+    feitos = []
+    sofridos = []
 
-    for j in dados.get("matches", []):
+    for jogo in jogos:
+        if is_home:
+            if jogo["teams"]["home"]["id"] == time_id:
+                feitos.append(jogo["goals"]["home"])
+                sofridos.append(jogo["goals"]["away"])
+        else:
+            if jogo["teams"]["away"]["id"] == time_id:
+                feitos.append(jogo["goals"]["away"])
+                sofridos.append(jogo["goals"]["home"])
 
-        if j.get("status") not in ["SCHEDULED","TIMED"]:
-            continue
+    return feitos, sofridos
 
-        casa = j["homeTeam"]["name"]
-        fora = j["awayTeam"]["name"]
 
-        id_casa = j["homeTeam"]["id"]
-        id_fora = j["awayTeam"]["id"]
-
-        stats_casa = estatisticas_time(id_casa)
-        stats_fora = estatisticas_time(id_fora)
-
-        if not stats_casa or not stats_fora:
-            continue
-
-        # padrões
-        over_casa = sum(1 for x in stats_casa["casa_feitos"] if x >= 2)
-        over_fora = sum(1 for x in stats_fora["fora_feitos"] if x >= 2)
-
-        btts_casa = sum(1 for f, s in zip(stats_casa["casa_feitos"], stats_casa["casa_sofridos"]) if f > 0 and s > 0)
-        btts_fora = sum(1 for f, s in zip(stats_fora["fora_feitos"], stats_fora["fora_sofridos"]) if f > 0 and s > 0)
-
-        # probabilidade simples
-        prob_over25 = int(((over_casa + over_fora) / 20) * 100)
-        prob_btts = int(((btts_casa + btts_fora) / 20) * 100)
-
-        st.write("---")
-        st.write(f"{casa} x {fora}")
-
-        # 🔥 leitura do jogo
-        if prob_over25 > 65 and prob_btts > 60:
-            st.success("🔥 JOGO MUITO FORTE")
-
-        elif prob_over25 > 60:
-            st.info("⚡ JOGO BOM PARA OVER")
-
-        elif prob_over25 < 40:
-            st.warning("🧊 JOGO FRACO")
-
-        # dados
-        st.write(f"🏠 {casa} (CASA)")
-        st.write("Feitos:", stats_casa["casa_feitos"])
-        st.write("Sofridos:", stats_casa["casa_sofridos"])
-
-        st.write(f"🚗 {fora} (FORA)")
-        st.write("Feitos:", stats_fora["fora_feitos"])
-        st.write("Sofridos:", stats_fora["fora_sofridos"])
-
-        st.write("📊 Prob Over 2.5:", prob_over25,"%")
-        st.write("🤝 Prob Ambas Marcam:", prob_btts,"%")
-
-        # 💰 ODDS E VALUE
-        if prob_over25 > 0:
-
-            odd_justa = round(100 / prob_over25, 2)
-            st.write("💰 Odd justa Over 2.5:", odd_justa)
-
-            odd_usuario = st.number_input(
-                f"Digite a odd da casa ({casa} x {fora})",
-                min_value=1.01,
-                step=0.01,
-                key=casa+fora
-            )
-
-            if odd_usuario > odd_justa:
-                st.success("🔥 VALUE BET DETECTADA")
-            elif odd_usuario > 1.01:
-                st.error("❌ Sem valor")
-
+# =========================
+# INTERFACE
+# =========================
+st.title("🤖 ROBÔ PROFISSIONAL DE APOSTAS")
 
 if st.button("🔎 ANALISAR JOGOS"):
-    analisar()
+
+    st.write("Buscando jogos...")
+
+    jogos = buscar_jogos()
+
+    if not jogos:
+        st.warning("Nenhum jogo encontrado hoje.")
+    else:
+        for jogo in jogos:
+
+            casa = jogo["teams"]["home"]["name"]
+            fora = jogo["teams"]["away"]["name"]
+
+            casa_id = jogo["teams"]["home"]["id"]
+            fora_id = jogo["teams"]["away"]["id"]
+
+            st.divider()
+            st.subheader(f"⚽ {casa} x {fora}")
+
+            # =========================
+            # TIME CASA
+            # =========================
+            feitos_casa, sofridos_casa = calcular_stats(casa_id, True)
+
+            st.write(f"🏠 {casa}")
+
+            if feitos_casa:
+                st.write("⚽ Gols feitos:", ", ".join(map(str, feitos_casa)))
+                st.write("🥅 Gols sofridos:", ", ".join(map(str, sofridos_casa)))
+            else:
+                st.write("Sem dados suficientes")
+
+            # =========================
+            # TIME FORA
+            # =========================
+            feitos_fora, sofridos_fora = calcular_stats(fora_id, False)
+
+            st.write(f"✈️ {fora}")
+
+            if feitos_fora:
+                st.write("⚽ Gols feitos:", ", ".join(map(str, feitos_fora)))
+                st.write("🥅 Gols sofridos:", ", ".join(map(str, sofridos_fora)))
+            else:
+                st.write("Sem dados suficientes")
