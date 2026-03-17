@@ -8,7 +8,8 @@ LIGAS = {
     "BSA": "Brasileirão Série A",
     "BRC": "Copa do Brasil",
     "CLI": "Libertadores",
-    "CSA": "Sul-Americana"
+    "CSA": "Sul-Americana",
+    "CL": "Champions League"
 }
 
 st.set_page_config(page_title="Robô de Apostas", layout="wide")
