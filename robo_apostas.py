@@ -9,6 +9,70 @@ st.title("⚽ Robô PRO de Apostas")
 
 HEADERS = {"X-Auth-Token": API_TOKEN}
 
+st.markdown("""
+<style>
+.card {
+    background-color: #111827;
+    padding: 18px;
+    border-radius: 16px;
+    margin-bottom: 18px;
+    border: 1px solid #374151;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+.card h3 {
+    margin-top: 0;
+    margin-bottom: 8px;
+}
+.badge {
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    margin-right: 8px;
+    margin-bottom: 8px;
+}
+.badge-strong {
+    background: #065f46;
+    color: #d1fae5;
+}
+.badge-good {
+    background: #1e3a8a;
+    color: #dbeafe;
+}
+.badge-weak {
+    background: #7f1d1d;
+    color: #fee2e2;
+}
+.stat-box {
+    background: #1f2937;
+    padding: 10px 12px;
+    border-radius: 12px;
+    margin-bottom: 8px;
+}
+.small-title {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-bottom: 4px;
+}
+.big-number {
+    font-size: 20px;
+    font-weight: 700;
+}
+.section-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+hr.custom {
+    border: none;
+    border-top: 1px solid #374151;
+    margin: 14px 0;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 @st.cache_data(ttl=300)
 def buscar_jogos_brasileirao(inicio, fim):
@@ -89,12 +153,10 @@ def analisar_jogo(stats_casa, stats_fora):
     media_fora_feitos = media(fora_feitos)
     media_fora_sofridos = media(fora_sofridos)
 
-    # modelo mais preciso cruzando ataque e defesa
     expectativa_gols_casa = round((media_casa_feitos + media_fora_sofridos) / 2, 2)
     expectativa_gols_fora = round((media_fora_feitos + media_casa_sofridos) / 2, 2)
     gols_esperados = round(expectativa_gols_casa + expectativa_gols_fora, 2)
 
-    # padrões históricos casa/fora
     over25_casa = sum(1 for f, s in zip(casa_feitos, casa_sofridos) if (f + s) >= 3)
     over25_fora = sum(1 for f, s in zip(fora_feitos, fora_sofridos) if (f + s) >= 3)
     total_jogos_over25 = len(casa_feitos) + len(fora_feitos)
@@ -110,7 +172,6 @@ def analisar_jogo(stats_casa, stats_fora):
     total_jogos_over15 = len(casa_feitos) + len(fora_feitos)
     base_over15 = int(((over15_casa + over15_fora) / total_jogos_over15) * 100) if total_jogos_over15 else 0
 
-    # ajuste por gols esperados
     ajuste_over15 = min(int((gols_esperados / 1.8) * 10), 15)
     ajuste_over25 = min(int((gols_esperados / 2.6) * 12), 18)
     ajuste_btts = min(int(((expectativa_gols_casa + expectativa_gols_fora) / 2.4) * 10), 15)
@@ -123,18 +184,22 @@ def analisar_jogo(stats_casa, stats_fora):
         sinal = "🔥 JOGO MUITO FORTE"
         mercado = "Over 2.5 / Ambas Marcam"
         confianca = "Alta"
+        badge = "strong"
     elif prob_over25 >= 63:
         sinal = "⚡ JOGO BOM"
         mercado = "Over 2.5"
         confianca = "Média"
+        badge = "good"
     elif prob_over15 >= 78:
         sinal = "✅ JOGO INTERESSANTE"
         mercado = "Over 1.5"
         confianca = "Média"
+        badge = "good"
     else:
         sinal = "🧊 JOGO FRACO"
         mercado = "Evitar ou analisar melhor"
         confianca = "Baixa"
+        badge = "weak"
 
     return {
         "media_casa_feitos": media_casa_feitos,
@@ -152,18 +217,16 @@ def analisar_jogo(stats_casa, stats_fora):
         "odd_justa_btts": odd_justa(prob_btts),
         "sinal": sinal,
         "mercado": mercado,
-        "confianca": confianca
+        "confianca": confianca,
+        "badge": badge
     }
 
 
-def mostrar_lista_rotulo(rotulo, lista):
-    if lista:
-        st.write(f"{rotulo} {', '.join(map(str, lista))}")
-    else:
-        st.write(f"{rotulo} Sem dados")
+def lista_texto(lista):
+    return ", ".join(map(str, lista)) if lista else "Sem dados"
 
 
-def mostrar_value(nome_mercado, prob, odd_modelo, chave):
+def mostrar_value(nome_mercado, odd_modelo, chave):
     odd_usuario = st.number_input(
         f"Odd da casa para {nome_mercado}",
         min_value=1.01,
@@ -171,15 +234,14 @@ def mostrar_value(nome_mercado, prob, odd_modelo, chave):
         key=chave
     )
 
-    st.write(f"Odd justa {nome_mercado}: {odd_modelo}")
+    st.write(f"Odd justa: {odd_modelo}")
 
     if odd_usuario > 1.01:
         edge = round(((odd_usuario / odd_modelo) - 1) * 100, 2) if odd_modelo > 0 else 0
-
         if odd_usuario > odd_modelo:
-            st.success(f"💰 VALUE BET DETECTADA | Valor: +{edge}%")
+            st.success(f"💰 VALUE BET | +{edge}%")
         else:
-            st.warning(f"❌ Sem valor | Diferença: {edge}%")
+            st.warning(f"❌ Sem valor | {edge}%")
 
 
 def analisar():
@@ -220,11 +282,7 @@ def analisar():
 
         analise = analisar_jogo(stats_casa, stats_fora)
 
-        score = (
-            analise["prob_over15"] +
-            analise["prob_over25"] +
-            analise["prob_btts"]
-        )
+        score = analise["prob_over15"] + analise["prob_over25"] + analise["prob_btts"]
 
         jogos.append({
             "jogo": f"{casa} x {fora}",
@@ -251,48 +309,66 @@ def analisar():
         stats_fora = item["stats_fora"]
         a = item["analise"]
 
-        st.divider()
-        st.subheader(f"⚽ {item['jogo']}")
-        st.write(a["sinal"])
-        st.write(f"**Mercado principal:** {a['mercado']}")
-        st.write(f"**Confiança:** {a['confianca']}")
+        badge_class = (
+            "badge-strong" if a["badge"] == "strong"
+            else "badge-good" if a["badge"] == "good"
+            else "badge-weak"
+        )
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown(f"<h3>⚽ {item['jogo']}</h3>", unsafe_allow_html=True)
+        st.markdown(
+            f'<span class="badge {badge_class}">{a["sinal"]}</span>'
+            f'<span class="badge badge-good">Mercado: {a["mercado"]}</span>'
+            f'<span class="badge badge-good">Confiança: {a["confianca"]}</span>',
+            unsafe_allow_html=True
+        )
+
         st.write(
             f"**Base usada:** {casa} em casa: {len(stats_casa['casa_feitos'])} jogos | "
             f"{fora} fora: {len(stats_fora['fora_feitos'])} jogos"
         )
 
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            st.markdown('<div class="stat-box"><div class="small-title">Gols esperados</div>'
+                        f'<div class="big-number">{a["gols_esperados"]}</div></div>', unsafe_allow_html=True)
+        with c2:
+            st.markdown('<div class="stat-box"><div class="small-title">Prob Over 2.5</div>'
+                        f'<div class="big-number">{a["prob_over25"]}%</div></div>', unsafe_allow_html=True)
+        with c3:
+            st.markdown('<div class="stat-box"><div class="small-title">Prob Ambas</div>'
+                        f'<div class="big-number">{a["prob_btts"]}%</div></div>', unsafe_allow_html=True)
+
         col1, col2 = st.columns(2)
 
         with col1:
-            st.write(f"### 🏠 {casa} (CASA)")
-            mostrar_lista_rotulo("⚽ Gols feitos:", stats_casa["casa_feitos"])
-            mostrar_lista_rotulo("🥅 Gols sofridos:", stats_casa["casa_sofridos"])
+            st.markdown(f"### 🏠 {casa} (CASA)")
+            st.write(f"⚽ Gols feitos: {lista_texto(stats_casa['casa_feitos'])}")
+            st.write(f"🥅 Gols sofridos: {lista_texto(stats_casa['casa_sofridos'])}")
             st.write(f"Média feitos: {a['media_casa_feitos']}")
             st.write(f"Média sofridos: {a['media_casa_sofridos']}")
 
         with col2:
-            st.write(f"### ✈️ {fora} (FORA)")
-            mostrar_lista_rotulo("⚽ Gols feitos:", stats_fora["fora_feitos"])
-            mostrar_lista_rotulo("🥅 Gols sofridos:", stats_fora["fora_sofridos"])
+            st.markdown(f"### ✈️ {fora} (FORA)")
+            st.write(f"⚽ Gols feitos: {lista_texto(stats_fora['fora_feitos'])}")
+            st.write(f"🥅 Gols sofridos: {lista_texto(stats_fora['fora_sofridos'])}")
             st.write(f"Média feitos: {a['media_fora_feitos']}")
             st.write(f"Média sofridos: {a['media_fora_sofridos']}")
 
-        st.write(f"**⚽ Expectativa de gols do {casa}:** {a['expectativa_gols_casa']}")
-        st.write(f"**⚽ Expectativa de gols do {fora}:** {a['expectativa_gols_fora']}")
-        st.write(f"**⚽ Gols esperados totais:** {a['gols_esperados']}")
-        st.write(f"**📈 Prob Over 1.5:** {a['prob_over15']}%")
-        st.write(f"**📊 Prob Over 2.5:** {a['prob_over25']}%")
-        st.write(f"**🤝 Prob Ambas Marcam:** {a['prob_btts']}%")
+        st.markdown('<hr class="custom">', unsafe_allow_html=True)
+        st.markdown("### 💰 Value Bet")
+        v1, v2, v3 = st.columns(3)
 
-        st.write("### 💰 Value Bet")
-        c1, c2, c3 = st.columns(3)
+        with v1:
+            mostrar_value("Over 1.5", a["odd_justa_over15"], f"{casa}_{fora}_over15")
+        with v2:
+            mostrar_value("Over 2.5", a["odd_justa_over25"], f"{casa}_{fora}_over25")
+        with v3:
+            mostrar_value("Ambas Marcam", a["odd_justa_btts"], f"{casa}_{fora}_btts")
 
-        with c1:
-            mostrar_value("Over 1.5", a["prob_over15"], a["odd_justa_over15"], f"{casa}_{fora}_over15")
-        with c2:
-            mostrar_value("Over 2.5", a["prob_over25"], a["odd_justa_over25"], f"{casa}_{fora}_over25")
-        with c3:
-            mostrar_value("Ambas Marcam", a["prob_btts"], a["odd_justa_btts"], f"{casa}_{fora}_btts")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 if st.button("🔎 ANALISAR JOGOS"):
