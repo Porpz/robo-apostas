@@ -11,144 +11,228 @@ LIGAS = {
     "BSA": "Brasileirão Série A"
 }
 
+HEADERS = {"X-Auth-Token": API_TOKEN}
+
+
+@st.cache_data(ttl=300)
+def buscar_jogos_brasileirao(inicio, fim):
+    url = f"https://api.football-data.org/v4/competitions/BSA/matches?dateFrom={inicio}&dateTo={fim}"
+    r = requests.get(url, headers=HEADERS, timeout=20)
+    return r.status_code, r.json() if r.status_code == 200 else {}
+
+
+@st.cache_data(ttl=300)
+def buscar_partidas_time(team_id):
+    # 50 ajuda a encontrar mais jogos casa/fora sem precisar pedir várias vezes
+    url = f"https://api.football-data.org/v4/teams/{team_id}/matches?status=FINISHED&limit=50"
+    r = requests.get(url, headers=HEADERS, timeout=20)
+
+    if r.status_code == 429:
+        return 429, {}
+    if r.status_code != 200:
+        return r.status_code, {}
+
+    return 200, r.json()
+
+
 def estatisticas_time(team_id):
-    headers = {"X-Auth-Token": API_TOKEN}
-    url = f"https://api.football-data.org/v4/teams/{team_id}/matches?status=FINISHED&limit=30"
+    status, dados = buscar_partidas_time(team_id)
 
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
+    if status != 200:
+        return {"erro": status}
 
-        if r.status_code != 200:
-            return {}
+    casa_feitos = []
+    casa_sofridos = []
+    fora_feitos = []
+    fora_sofridos = []
 
-        dados = r.json()
+    for j in dados.get("matches", []):
+        home_goals = j["score"]["fullTime"]["home"]
+        away_goals = j["score"]["fullTime"]["away"]
 
-        casa_feitos = []
-        casa_sofridos = []
-        fora_feitos = []
-        fora_sofridos = []
+        if home_goals is None or away_goals is None:
+            continue
 
-        for j in dados.get("matches", []):
-            home_goals = j["score"]["fullTime"]["home"]
-            away_goals = j["score"]["fullTime"]["away"]
+        if j["homeTeam"]["id"] == team_id:
+            if len(casa_feitos) < 10:
+                casa_feitos.append(home_goals)
+                casa_sofridos.append(away_goals)
+        else:
+            if len(fora_feitos) < 10:
+                fora_feitos.append(away_goals)
+                fora_sofridos.append(home_goals)
 
-            if home_goals is None or away_goals is None:
-                continue
+        if len(casa_feitos) >= 10 and len(fora_feitos) >= 10:
+            break
 
-            if j["homeTeam"]["id"] == team_id:
-                if len(casa_feitos) < 10:
-                    casa_feitos.append(home_goals)
-                    casa_sofridos.append(away_goals)
-            else:
-                if len(fora_feitos) < 10:
-                    fora_feitos.append(away_goals)
-                    fora_sofridos.append(home_goals)
+    return {
+        "casa_feitos": casa_feitos,
+        "casa_sofridos": casa_sofridos,
+        "fora_feitos": fora_feitos,
+        "fora_sofridos": fora_sofridos
+    }
 
-        return {
-            "casa_feitos": casa_feitos,
-            "casa_sofridos": casa_sofridos,
-            "fora_feitos": fora_feitos,
-            "fora_sofridos": fora_sofridos
-        }
 
-    except Exception:
-        return {}
+def media(lista):
+    return round(sum(lista) / len(lista), 2) if lista else 0.0
+
+
+def odd_justa(prob_percent):
+    if prob_percent <= 0:
+        return 0.0
+    return round(100 / prob_percent, 2)
+
+
+def analisar_jogo(stats_casa, stats_fora):
+    casa_feitos = stats_casa["casa_feitos"]
+    casa_sofridos = stats_casa["casa_sofridos"]
+    fora_feitos = stats_fora["fora_feitos"]
+    fora_sofridos = stats_fora["fora_sofridos"]
+
+    media_casa_feitos = media(casa_feitos)
+    media_casa_sofridos = media(casa_sofridos)
+    media_fora_feitos = media(fora_feitos)
+    media_fora_sofridos = media(fora_sofridos)
+
+    gols_esperados = round(
+        (
+            media_casa_feitos +
+            media_fora_feitos +
+            media_casa_sofridos +
+            media_fora_sofridos
+        ) / 2,
+        2
+    )
+
+    # over 2.5 por padrão dos últimos jogos
+    over_casa = sum(
+        1 for f, s in zip(casa_feitos, casa_sofridos) if (f + s) >= 3
+    )
+    over_fora = sum(
+        1 for f, s in zip(fora_feitos, fora_sofridos) if (f + s) >= 3
+    )
+
+    total_jogos_over = len(casa_feitos) + len(fora_feitos)
+    prob_over25 = int(((over_casa + over_fora) / total_jogos_over) * 100) if total_jogos_over else 0
+
+    # ambas marcam
+    btts_casa = sum(
+        1 for f, s in zip(casa_feitos, casa_sofridos) if f > 0 and s > 0
+    )
+    btts_fora = sum(
+        1 for f, s in zip(fora_feitos, fora_sofridos) if f > 0 and s > 0
+    )
+
+    total_jogos_btts = len(casa_feitos) + len(fora_feitos)
+    prob_btts = int(((btts_casa + btts_fora) / total_jogos_btts) * 100) if total_jogos_btts else 0
+
+    # over 1.5
+    over15_casa = sum(
+        1 for f, s in zip(casa_feitos, casa_sofridos) if (f + s) >= 2
+    )
+    over15_fora = sum(
+        1 for f, s in zip(fora_feitos, fora_sofridos) if (f + s) >= 2
+    )
+
+    total_jogos_over15 = len(casa_feitos) + len(fora_feitos)
+    prob_over15 = int(((over15_casa + over15_fora) / total_jogos_over15) * 100) if total_jogos_over15 else 0
+
+    if prob_over25 >= 70 and prob_btts >= 60:
+        sinal = "🔥 JOGO MUITO FORTE"
+        mercado = "Over 2.5 / Ambas Marcam"
+        confianca = "Alta"
+    elif prob_over25 >= 60:
+        sinal = "⚡ JOGO BOM"
+        mercado = "Over 2.5"
+        confianca = "Média"
+    elif prob_over15 >= 75:
+        sinal = "✅ JOGO INTERESSANTE"
+        mercado = "Over 1.5"
+        confianca = "Média"
+    else:
+        sinal = "🧊 JOGO FRACO"
+        mercado = "Evitar ou analisar melhor"
+        confianca = "Baixa"
+
+    return {
+        "media_casa_feitos": media_casa_feitos,
+        "media_casa_sofridos": media_casa_sofridos,
+        "media_fora_feitos": media_fora_feitos,
+        "media_fora_sofridos": media_fora_sofridos,
+        "gols_esperados": gols_esperados,
+        "prob_over15": prob_over15,
+        "prob_over25": prob_over25,
+        "prob_btts": prob_btts,
+        "odd_justa_over25": odd_justa(prob_over25),
+        "odd_justa_btts": odd_justa(prob_btts),
+        "sinal": sinal,
+        "mercado": mercado,
+        "confianca": confianca
+    }
+
+
+def mostrar_lista_rotulo(rotulo, lista):
+    if lista:
+        st.write(f"{rotulo} {', '.join(map(str, lista))}")
+    else:
+        st.write(f"{rotulo} Sem dados")
+
 
 def analisar():
-    headers = {"X-Auth-Token": API_TOKEN}
-
     hoje = datetime.utcnow()
     inicio = hoje.strftime("%Y-%m-%d")
     fim = (hoje + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    url = f"https://api.football-data.org/v4/competitions/BSA/matches?dateFrom={inicio}&dateTo={fim}"
+    status, dados = buscar_jogos_brasileirao(inicio, fim)
 
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
+    if status == 429:
+        st.error("Erro API 429: limite atingido. Espere 1 a 2 minutos e teste novamente.")
+        return
 
-        if r.status_code != 200:
-            st.error(f"Erro API: {r.status_code}")
+    if status != 200:
+        st.error(f"Erro API: {status}")
+        return
+
+    jogos = []
+
+    for j in dados.get("matches", []):
+        if j.get("status") not in ["SCHEDULED", "TIMED"]:
+            continue
+
+        casa = j["homeTeam"]["name"]
+        fora = j["awayTeam"]["name"]
+        id_casa = j["homeTeam"]["id"]
+        id_fora = j["awayTeam"]["id"]
+
+        stats_casa = estatisticas_time(id_casa)
+        stats_fora = estatisticas_time(id_fora)
+
+        if stats_casa.get("erro") == 429 or stats_fora.get("erro") == 429:
+            st.error("Erro API 429 nas estatísticas dos times. Espere 1 a 2 minutos e teste novamente.")
             return
 
-        dados = r.json()
-        jogos = []
+        if "erro" in stats_casa or "erro" in stats_fora:
+            continue
 
-        for j in dados.get("matches", []):
-            if j.get("status") not in ["SCHEDULED", "TIMED"]:
-                continue
+        analise = analisar_jogo(stats_casa, stats_fora)
 
-            casa = j["homeTeam"]["name"]
-            fora = j["awayTeam"]["name"]
+        jogos.append({
+            "jogo": f"{casa} x {fora}",
+            "casa": casa,
+            "fora": fora,
+            "stats_casa": stats_casa,
+            "stats_fora": stats_fora,
+            "analise": analise,
+            "score": analise["prob_over25"] + analise["prob_btts"] + analise["prob_over15"]
+        })
 
-            id_casa = j["homeTeam"]["id"]
-            id_fora = j["awayTeam"]["id"]
+    jogos.sort(key=lambda x: x["score"], reverse=True)
 
-            stats_casa = estatisticas_time(id_casa)
-            stats_fora = estatisticas_time(id_fora)
+    if not jogos:
+        st.warning("Nenhum jogo encontrado para hoje e amanhã.")
+        return
 
-            if not stats_casa or not stats_fora:
-                continue
+    st.subheader("⭐ TOP APOSTAS")
 
-            casa_media_m = (
-                sum(stats_casa["casa_feitos"]) / len(stats_casa["casa_feitos"])
-                if stats_casa["casa_feitos"] else 0
-            )
-            casa_media_s = (
-                sum(stats_casa["casa_sofridos"]) / len(stats_casa["casa_sofridos"])
-                if stats_casa["casa_sofridos"] else 0
-            )
-            fora_media_m = (
-                sum(stats_fora["fora_feitos"]) / len(stats_fora["fora_feitos"])
-                if stats_fora["fora_feitos"] else 0
-            )
-            fora_media_s = (
-                sum(stats_fora["fora_sofridos"]) / len(stats_fora["fora_sofridos"])
-                if stats_fora["fora_sofridos"] else 0
-            )
-
-            prob_over25 = min(int(((casa_media_m + fora_media_m) / 2.5) * 100), 90)
-            prob_btts = min(int(((casa_media_m + fora_media_m) / 2.4) * 100), 85)
-
-            if prob_over25 > 65 and prob_btts > 60:
-                sinal = "🔥 JOGO MUITO FORTE"
-            elif prob_over25 > 55:
-                sinal = "⚡ JOGO BOM"
-            else:
-                sinal = "🧊 JOGO FRACO"
-
-            jogos.append({
-                "jogo": f"{casa} x {fora}",
-                "sinal": sinal,
-                "prob_over25": prob_over25,
-                "prob_btts": prob_btts,
-                "stats_casa": stats_casa,
-                "stats_fora": stats_fora,
-                "casa": casa,
-                "fora": fora
-            })
-
-        if not jogos:
-            st.warning("Nenhum jogo encontrado")
-            return
-
-        for j in jogos:
-            st.divider()
-            st.subheader(f"⚽ {j['jogo']}")
-            st.write(j["sinal"])
-
-            st.write(f"🏠 {j['casa']} (CASA)")
-            st.write("⚽ Gols feitos:", ", ".join(map(str, j["stats_casa"]["casa_feitos"])) or "Sem dados")
-            st.write("🥅 Gols sofridos:", ", ".join(map(str, j["stats_casa"]["casa_sofridos"])) or "Sem dados")
-
-            st.write(f"✈️ {j['fora']} (FORA)")
-            st.write("⚽ Gols feitos:", ", ".join(map(str, j["stats_fora"]["fora_feitos"])) or "Sem dados")
-            st.write("🥅 Gols sofridos:", ", ".join(map(str, j["stats_fora"]["fora_sofridos"])) or "Sem dados")
-
-            st.write(f"📊 Prob Over 2.5: {j['prob_over25']}%")
-            st.write(f"🤝 Prob Ambas Marcam: {j['prob_btts']}%")
-
-    except Exception as e:
-        st.error(f"Erro ao analisar: {e}")
-
-if st.button("🔎 ANALISAR JOGOS"):
-    analisar()
+    for item in jogos[:10]:
+        casa = item["casa"]
