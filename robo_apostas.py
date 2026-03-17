@@ -4,17 +4,8 @@ from datetime import datetime, timedelta
 
 API_TOKEN = "845305378d0846c7b4ce6e9b12652ffd"
 
-st.set_page_config(page_title="Robô PRO", layout="wide")
-st.title("⚽ Robô Inteligente de Apostas")
-
-
-def analisar_padrao(lista):
-    over = sum(1 for x in lista if x >= 2)
-    return over
-
-
-def analisar_btts(feitos, sofridos):
-    return sum(1 for f, s in zip(feitos, sofridos) if f > 0 and s > 0)
+st.set_page_config(page_title="Robô de Lucro", layout="wide")
+st.title("⚽ Robô Profissional de Apostas (Foco em Lucro)")
 
 
 def estatisticas_time(team_id):
@@ -99,33 +90,58 @@ def analisar():
             continue
 
         # padrões
-        over_casa = analisar_padrao(stats_casa["casa_feitos"])
-        over_fora = analisar_padrao(stats_fora["fora_feitos"])
+        over_casa = sum(1 for x in stats_casa["casa_feitos"] if x >= 2)
+        over_fora = sum(1 for x in stats_fora["fora_feitos"] if x >= 2)
 
-        btts_casa = analisar_btts(stats_casa["casa_feitos"], stats_casa["casa_sofridos"])
-        btts_fora = analisar_btts(stats_fora["fora_feitos"], stats_fora["fora_sofridos"])
+        btts_casa = sum(1 for f, s in zip(stats_casa["casa_feitos"], stats_casa["casa_sofridos"]) if f > 0 and s > 0)
+        btts_fora = sum(1 for f, s in zip(stats_fora["fora_feitos"], stats_fora["fora_sofridos"]) if f > 0 and s > 0)
+
+        # probabilidade simples
+        prob_over25 = int(((over_casa + over_fora) / 20) * 100)
+        prob_btts = int(((btts_casa + btts_fora) / 20) * 100)
 
         st.write("---")
         st.write(f"{casa} x {fora}")
 
-        # 🔥 DETECÇÃO
-        if over_casa >= 7 and over_fora >= 6:
-            st.write("🔥 OVER MUITO FORTE")
+        # 🔥 leitura do jogo
+        if prob_over25 > 65 and prob_btts > 60:
+            st.success("🔥 JOGO MUITO FORTE")
 
-        if btts_casa >= 6 and btts_fora >= 6:
-            st.write("🤝 AMBAS MUITO FORTE")
+        elif prob_over25 > 60:
+            st.info("⚡ JOGO BOM PARA OVER")
 
-        if over_casa <= 3 and over_fora <= 3:
-            st.write("🧊 JOGO FRACO")
+        elif prob_over25 < 40:
+            st.warning("🧊 JOGO FRACO")
 
         # dados
-        st.write(f"🏠 {casa}")
+        st.write(f"🏠 {casa} (CASA)")
         st.write("Feitos:", stats_casa["casa_feitos"])
         st.write("Sofridos:", stats_casa["casa_sofridos"])
 
-        st.write(f"🚗 {fora}")
+        st.write(f"🚗 {fora} (FORA)")
         st.write("Feitos:", stats_fora["fora_feitos"])
         st.write("Sofridos:", stats_fora["fora_sofridos"])
+
+        st.write("📊 Prob Over 2.5:", prob_over25,"%")
+        st.write("🤝 Prob Ambas Marcam:", prob_btts,"%")
+
+        # 💰 ODDS E VALUE
+        if prob_over25 > 0:
+
+            odd_justa = round(100 / prob_over25, 2)
+            st.write("💰 Odd justa Over 2.5:", odd_justa)
+
+            odd_usuario = st.number_input(
+                f"Digite a odd da casa ({casa} x {fora})",
+                min_value=1.01,
+                step=0.01,
+                key=casa+fora
+            )
+
+            if odd_usuario > odd_justa:
+                st.success("🔥 VALUE BET DETECTADA")
+            elif odd_usuario > 1.01:
+                st.error("❌ Sem valor")
 
 
 if st.button("🔎 ANALISAR JOGOS"):
