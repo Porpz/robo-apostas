@@ -10,9 +10,6 @@ st.title("⚽ Robô PRO de Apostas")
 
 HEADERS = {"X-Auth-Token": API_TOKEN}
 
-# =========================
-# SESSION STATE
-# =========================
 if "analisar" not in st.session_state:
     st.session_state.analisar = False
 
@@ -25,9 +22,6 @@ if "banca_inicial" not in st.session_state:
 if "percentual_stake" not in st.session_state:
     st.session_state.percentual_stake = 2.0
 
-# =========================
-# CSS
-# =========================
 st.markdown("""
 <style>
 .card {
@@ -82,9 +76,7 @@ hr.custom {
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# API
-# =========================
+
 @st.cache_data(ttl=300)
 def buscar_jogos_brasileirao(inicio, fim):
     url = f"https://api.football-data.org/v4/competitions/BSA/matches?dateFrom={inicio}&dateTo={fim}"
@@ -98,9 +90,7 @@ def buscar_historico_brasileirao():
     r = requests.get(url, headers=HEADERS, timeout=20)
     return r.status_code, r.json() if r.status_code == 200 else {}
 
-# =========================
-# FUNÇÕES DE CÁLCULO
-# =========================
+
 def construir_stats_time(team_id, matches):
     matches_ordenadas = sorted(matches, key=lambda j: j.get("utcDate", ""), reverse=True)
 
@@ -110,6 +100,9 @@ def construir_stats_time(team_id, matches):
     casa_sofridos = []
     fora_feitos = []
     fora_sofridos = []
+    gerais_resultados = []
+    casa_resultados = []
+    fora_resultados = []
 
     for j in matches_ordenadas:
         home_goals = j["score"]["fullTime"]["home"]
@@ -118,27 +111,48 @@ def construir_stats_time(team_id, matches):
         if home_goals is None or away_goals is None:
             continue
 
+        feitos = None
+        sofridos = None
+        resultado = None
+
         if j["homeTeam"]["id"] == team_id:
             feitos = home_goals
             sofridos = away_goals
 
+            if feitos > sofridos:
+                resultado = "V"
+            elif feitos == sofridos:
+                resultado = "E"
+            else:
+                resultado = "D"
+
             if len(casa_feitos) < 10:
                 casa_feitos.append(feitos)
                 casa_sofridos.append(sofridos)
+                casa_resultados.append(resultado)
 
         elif j["awayTeam"]["id"] == team_id:
             feitos = away_goals
             sofridos = home_goals
 
+            if feitos > sofridos:
+                resultado = "V"
+            elif feitos == sofridos:
+                resultado = "E"
+            else:
+                resultado = "D"
+
             if len(fora_feitos) < 10:
                 fora_feitos.append(feitos)
                 fora_sofridos.append(sofridos)
+                fora_resultados.append(resultado)
         else:
             continue
 
         if len(gerais_feitos) < 10:
             gerais_feitos.append(feitos)
             gerais_sofridos.append(sofridos)
+            gerais_resultados.append(resultado)
 
         if (
             len(gerais_feitos) >= 10 and
@@ -150,15 +164,27 @@ def construir_stats_time(team_id, matches):
     return {
         "gerais_feitos": gerais_feitos,
         "gerais_sofridos": gerais_sofridos,
+        "gerais_resultados": gerais_resultados,
         "casa_feitos": casa_feitos,
         "casa_sofridos": casa_sofridos,
+        "casa_resultados": casa_resultados,
         "fora_feitos": fora_feitos,
-        "fora_sofridos": fora_sofridos
+        "fora_sofridos": fora_sofridos,
+        "fora_resultados": fora_resultados
     }
 
 
 def media(lista):
     return round(sum(lista) / len(lista), 2) if lista else 0.0
+
+
+def media_ponderada_recente(lista):
+    if not lista:
+        return 0.0
+    pesos = list(range(len(lista), 0, -1))
+    soma_pesos = sum(pesos)
+    soma = sum(valor * peso for valor, peso in zip(lista, pesos))
+    return round(soma / soma_pesos, 2)
 
 
 def odd_justa(prob_percent):
@@ -193,6 +219,29 @@ def stake_sugerida():
     return round(banca * (percentual / 100), 2)
 
 
+def forma_pontos(resultados):
+    mapa = {"V": 3, "E": 1, "D": 0}
+    return sum(mapa.get(r, 0) for r in resultados[:5])
+
+
+def forma_texto(pontos):
+    if pontos >= 10:
+        return "🔥 Muito boa"
+    if pontos >= 7:
+        return "✅ Boa"
+    if pontos >= 4:
+        return "⚠️ Média"
+    return "🧊 Ruim"
+
+
+def nivel_amostra(qtd):
+    if qtd >= 8:
+        return "Forte"
+    if qtd >= 5:
+        return "Média"
+    return "Fraca"
+
+
 def analisar_jogo(stats_casa, stats_fora):
     casa_feitos = stats_casa["casa_feitos"]
     casa_sofridos = stats_casa["casa_sofridos"]
@@ -204,8 +253,13 @@ def analisar_jogo(stats_casa, stats_fora):
     media_fora_feitos = media(fora_feitos)
     media_fora_sofridos = media(fora_sofridos)
 
-    expectativa_gols_casa = round((media_casa_feitos + media_fora_sofridos) / 2, 2)
-    expectativa_gols_fora = round((media_fora_feitos + media_casa_sofridos) / 2, 2)
+    media_recente_casa_feitos = media_ponderada_recente(casa_feitos)
+    media_recente_casa_sofridos = media_ponderada_recente(casa_sofridos)
+    media_recente_fora_feitos = media_ponderada_recente(fora_feitos)
+    media_recente_fora_sofridos = media_ponderada_recente(fora_sofridos)
+
+    expectativa_gols_casa = round((media_recente_casa_feitos + media_recente_fora_sofridos) / 2, 2)
+    expectativa_gols_fora = round((media_recente_fora_feitos + media_recente_casa_sofridos) / 2, 2)
     gols_esperados = round(expectativa_gols_casa + expectativa_gols_fora, 2)
 
     over25_casa = sum(1 for f, s in zip(casa_feitos, casa_sofridos) if (f + s) >= 3)
@@ -230,6 +284,23 @@ def analisar_jogo(stats_casa, stats_fora):
     prob_over15 = min(max(base_over15 + ajuste_over15, 5), 85)
     prob_over25 = min(max(base_over25 + ajuste_over25, 5), 75)
     prob_btts = min(max(base_btts + ajuste_btts, 5), 68)
+
+    forma_casa_pts = forma_pontos(stats_casa["gerais_resultados"])
+    forma_fora_pts = forma_pontos(stats_fora["gerais_resultados"])
+
+    amostra_casa = nivel_amostra(len(casa_feitos))
+    amostra_fora = nivel_amostra(len(fora_feitos))
+
+    confianca_nota = round(
+        (
+            (prob_over15 / 10) * 0.30 +
+            (prob_over25 / 10) * 0.35 +
+            (prob_btts / 10) * 0.20 +
+            (forma_casa_pts / 15) * 10 * 0.075 +
+            (forma_fora_pts / 15) * 10 * 0.075
+        ),
+        1
+    )
 
     if prob_over25 >= 68 and prob_btts >= 58:
         sinal = "🔥 JOGO MUITO FORTE"
@@ -257,6 +328,10 @@ def analisar_jogo(stats_casa, stats_fora):
         "media_casa_sofridos": media_casa_sofridos,
         "media_fora_feitos": media_fora_feitos,
         "media_fora_sofridos": media_fora_sofridos,
+        "media_recente_casa_feitos": media_recente_casa_feitos,
+        "media_recente_casa_sofridos": media_recente_casa_sofridos,
+        "media_recente_fora_feitos": media_recente_fora_feitos,
+        "media_recente_fora_sofridos": media_recente_fora_sofridos,
         "expectativa_gols_casa": expectativa_gols_casa,
         "expectativa_gols_fora": expectativa_gols_fora,
         "gols_esperados": gols_esperados,
@@ -269,12 +344,17 @@ def analisar_jogo(stats_casa, stats_fora):
         "sinal": sinal,
         "mercado": mercado,
         "confianca": confianca,
-        "badge": badge
+        "badge": badge,
+        "forma_casa_pts": forma_casa_pts,
+        "forma_fora_pts": forma_fora_pts,
+        "forma_casa_txt": forma_texto(forma_casa_pts),
+        "forma_fora_txt": forma_texto(forma_fora_pts),
+        "amostra_casa": amostra_casa,
+        "amostra_fora": amostra_fora,
+        "confianca_nota": confianca_nota
     }
 
-# =========================
-# HISTÓRICO E BANCA
-# =========================
+
 def registrar_historico(jogo, mercado, odd_usuario, odd_justa_modelo, stake):
     edge = round(((odd_usuario / odd_justa_modelo) - 1) * 100, 2) if odd_justa_modelo > 0 else 0
     st.session_state.historico.append({
@@ -377,9 +457,7 @@ def mostrar_painel_lucro():
     with c9:
         st.metric("Greens / Reds", f"{greens} / {reds}")
 
-# =========================
-# GERAÇÃO DOS JOGOS
-# =========================
+
 def gerar_jogos():
     hoje = datetime.utcnow()
     inicio = hoje.strftime("%Y-%m-%d")
@@ -412,7 +490,7 @@ def gerar_jogos():
         stats_fora = construir_stats_time(id_fora, historico_matches)
 
         analise = analisar_jogo(stats_casa, stats_fora)
-        score = analise["prob_over15"] + analise["prob_over25"] + analise["prob_btts"]
+        score = analise["prob_over15"] + analise["prob_over25"] + analise["prob_btts"] + analise["confianca_nota"]
 
         jogos.append({
             "jogo": f"{casa} x {fora}",
@@ -427,9 +505,7 @@ def gerar_jogos():
     jogos.sort(key=lambda x: x["score"], reverse=True)
     return jogos
 
-# =========================
-# ABAS
-# =========================
+
 tabs = st.tabs(["📊 Análise", "📒 Histórico", "💰 Painel"])
 
 with tabs[0]:
@@ -463,18 +539,19 @@ with tabs[0]:
                 st.markdown(
                     f'<span class="badge {badge_class}">{a["sinal"]}</span>'
                     f'<span class="badge badge-good">Mercado: {a["mercado"]}</span>'
-                    f'<span class="badge badge-good">Confiança: {a["confianca"]}</span>',
+                    f'<span class="badge badge-good">Confiança: {a["confianca"]}</span>'
+                    f'<span class="badge badge-good">Nota: {a["confianca_nota"]}/10</span>',
                     unsafe_allow_html=True
                 )
 
                 st.write(
-                    f"**Base usada:** {casa} em casa: {len(stats_casa['casa_feitos'])} jogos | "
-                    f"{fora} fora: {len(stats_fora['fora_feitos'])} jogos | "
-                    f"{casa} gerais: {len(stats_casa['gerais_feitos'])} jogos | "
-                    f"{fora} gerais: {len(stats_fora['gerais_feitos'])} jogos"
+                    f"**Base usada:** {casa} em casa: {len(stats_casa['casa_feitos'])} jogos ({a['amostra_casa']}) | "
+                    f"{fora} fora: {len(stats_fora['fora_feitos'])} jogos ({a['amostra_fora']}) | "
+                    f"{casa} forma: {a['forma_casa_pts']}/15 {a['forma_casa_txt']} | "
+                    f"{fora} forma: {a['forma_fora_pts']}/15 {a['forma_fora_txt']}"
                 )
 
-                c1, c2, c3 = st.columns(3)
+                c1, c2, c3, c4 = st.columns(4)
 
                 with c1:
                     st.markdown('<div class="stat-box"><div class="small-title">Gols esperados</div>'
@@ -485,6 +562,9 @@ with tabs[0]:
                 with c3:
                     st.markdown('<div class="stat-box"><div class="small-title">Prob Ambas</div>'
                                 f'<div class="big-number">{a["prob_btts"]}%</div></div>', unsafe_allow_html=True)
+                with c4:
+                    st.markdown('<div class="stat-box"><div class="small-title">Prob Over 1.5</div>'
+                                f'<div class="big-number">{a["prob_over15"]}%</div></div>', unsafe_allow_html=True)
 
                 col1, col2 = st.columns(2)
 
@@ -492,19 +572,17 @@ with tabs[0]:
                     st.markdown(f"### 🏠 {casa} (CASA)")
                     st.write(f"⚽ Gols feitos em casa: {lista_texto(stats_casa['casa_feitos'])}")
                     st.write(f"🥅 Gols sofridos em casa: {lista_texto(stats_casa['casa_sofridos'])}")
-                    st.write(f"⚽ Últimos 10 gerais feitos: {lista_texto(stats_casa['gerais_feitos'])}")
-                    st.write(f"🥅 Últimos 10 gerais sofridos: {lista_texto(stats_casa['gerais_sofridos'])}")
-                    st.write(f"Média feitos em casa: {a['media_casa_feitos']}")
-                    st.write(f"Média sofridos em casa: {a['media_casa_sofridos']}")
+                    st.write(f"📈 Média recente feitos: {a['media_recente_casa_feitos']}")
+                    st.write(f"📉 Média recente sofridos: {a['media_recente_casa_sofridos']}")
+                    st.write(f"🏁 Forma últimos 5: {lista_texto(stats_casa['gerais_resultados'][:5])}")
 
                 with col2:
                     st.markdown(f"### ✈️ {fora} (FORA)")
                     st.write(f"⚽ Gols feitos fora: {lista_texto(stats_fora['fora_feitos'])}")
                     st.write(f"🥅 Gols sofridos fora: {lista_texto(stats_fora['fora_sofridos'])}")
-                    st.write(f"⚽ Últimos 10 gerais feitos: {lista_texto(stats_fora['gerais_feitos'])}")
-                    st.write(f"🥅 Últimos 10 gerais sofridos: {lista_texto(stats_fora['gerais_sofridos'])}")
-                    st.write(f"Média feitos fora: {a['media_fora_feitos']}")
-                    st.write(f"Média sofridos fora: {a['media_fora_sofridos']}")
+                    st.write(f"📈 Média recente feitos: {a['media_recente_fora_feitos']}")
+                    st.write(f"📉 Média recente sofridos: {a['media_recente_fora_sofridos']}")
+                    st.write(f"🏁 Forma últimos 5: {lista_texto(stats_fora['gerais_resultados'][:5])}")
 
                 st.markdown('<hr class="custom">', unsafe_allow_html=True)
                 st.markdown("### 💰 Value Bet")
