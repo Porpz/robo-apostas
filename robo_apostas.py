@@ -86,17 +86,14 @@ def buscar_historico_brasileirao():
 
 
 def construir_stats_time(team_id, matches):
+    matches_ordenadas = sorted(matches, key=lambda j: j.get("utcDate", ""), reverse=True)
+
+    gerais_feitos = []
+    gerais_sofridos = []
     casa_feitos = []
     casa_sofridos = []
     fora_feitos = []
     fora_sofridos = []
-
-    # tenta ordenar do mais recente para o mais antigo
-    matches_ordenadas = sorted(
-        matches,
-        key=lambda j: j.get("utcDate", ""),
-        reverse=True
-    )
 
     for j in matches_ordenadas:
         home_goals = j["score"]["fullTime"]["home"]
@@ -105,18 +102,38 @@ def construir_stats_time(team_id, matches):
         if home_goals is None or away_goals is None:
             continue
 
-        if j["homeTeam"]["id"] == team_id and len(casa_feitos) < 10:
-            casa_feitos.append(home_goals)
-            casa_sofridos.append(away_goals)
+        if j["homeTeam"]["id"] == team_id:
+            feitos = home_goals
+            sofridos = away_goals
 
-        elif j["awayTeam"]["id"] == team_id and len(fora_feitos) < 10:
-            fora_feitos.append(away_goals)
-            fora_sofridos.append(home_goals)
+            if len(casa_feitos) < 10:
+                casa_feitos.append(feitos)
+                casa_sofridos.append(sofridos)
 
-        if len(casa_feitos) >= 10 and len(fora_feitos) >= 10:
+        elif j["awayTeam"]["id"] == team_id:
+            feitos = away_goals
+            sofridos = home_goals
+
+            if len(fora_feitos) < 10:
+                fora_feitos.append(feitos)
+                fora_sofridos.append(sofridos)
+        else:
+            continue
+
+        if len(gerais_feitos) < 10:
+            gerais_feitos.append(feitos)
+            gerais_sofridos.append(sofridos)
+
+        if (
+            len(gerais_feitos) >= 10 and
+            len(casa_feitos) >= 10 and
+            len(fora_feitos) >= 10
+        ):
             break
 
     return {
+        "gerais_feitos": gerais_feitos,
+        "gerais_sofridos": gerais_sofridos,
         "casa_feitos": casa_feitos,
         "casa_sofridos": casa_sofridos,
         "fora_feitos": fora_feitos,
@@ -164,7 +181,6 @@ def analisar_jogo(stats_casa, stats_fora):
     total_over15 = len(casa_feitos) + len(fora_feitos)
     base_over15 = int(((over15_casa + over15_fora) / total_over15) * 100) if total_over15 else 0
 
-    # ajustes mais leves
     ajuste_over15 = min(int((gols_esperados - 1.5) * 8), 8) if gols_esperados > 1.5 else 0
     ajuste_over25 = min(int((gols_esperados - 2.2) * 10), 10) if gols_esperados > 2.2 else 0
     ajuste_btts = min(int(min(expectativa_gols_casa, expectativa_gols_fora) * 8), 8)
@@ -331,7 +347,9 @@ def analisar():
 
         st.write(
             f"**Base usada:** {casa} em casa: {len(stats_casa['casa_feitos'])} jogos | "
-            f"{fora} fora: {len(stats_fora['fora_feitos'])} jogos"
+            f"{fora} fora: {len(stats_fora['fora_feitos'])} jogos | "
+            f"{casa} gerais: {len(stats_casa['gerais_feitos'])} jogos | "
+            f"{fora} gerais: {len(stats_fora['gerais_feitos'])} jogos"
         )
 
         c1, c2, c3 = st.columns(3)
@@ -350,17 +368,21 @@ def analisar():
 
         with col1:
             st.markdown(f"### 🏠 {casa} (CASA)")
-            st.write(f"⚽ Gols feitos: {lista_texto(stats_casa['casa_feitos'])}")
-            st.write(f"🥅 Gols sofridos: {lista_texto(stats_casa['casa_sofridos'])}")
-            st.write(f"Média feitos: {a['media_casa_feitos']}")
-            st.write(f"Média sofridos: {a['media_casa_sofridos']}")
+            st.write(f"⚽ Gols feitos em casa: {lista_texto(stats_casa['casa_feitos'])}")
+            st.write(f"🥅 Gols sofridos em casa: {lista_texto(stats_casa['casa_sofridos'])}")
+            st.write(f"⚽ Últimos 10 gerais feitos: {lista_texto(stats_casa['gerais_feitos'])}")
+            st.write(f"🥅 Últimos 10 gerais sofridos: {lista_texto(stats_casa['gerais_sofridos'])}")
+            st.write(f"Média feitos em casa: {a['media_casa_feitos']}")
+            st.write(f"Média sofridos em casa: {a['media_casa_sofridos']}")
 
         with col2:
             st.markdown(f"### ✈️ {fora} (FORA)")
-            st.write(f"⚽ Gols feitos: {lista_texto(stats_fora['fora_feitos'])}")
-            st.write(f"🥅 Gols sofridos: {lista_texto(stats_fora['fora_sofridos'])}")
-            st.write(f"Média feitos: {a['media_fora_feitos']}")
-            st.write(f"Média sofridos: {a['media_fora_sofridos']}")
+            st.write(f"⚽ Gols feitos fora: {lista_texto(stats_fora['fora_feitos'])}")
+            st.write(f"🥅 Gols sofridos fora: {lista_texto(stats_fora['fora_sofridos'])}")
+            st.write(f"⚽ Últimos 10 gerais feitos: {lista_texto(stats_fora['gerais_feitos'])}")
+            st.write(f"🥅 Últimos 10 gerais sofridos: {lista_texto(stats_fora['gerais_sofridos'])}")
+            st.write(f"Média feitos fora: {a['media_fora_feitos']}")
+            st.write(f"Média sofridos fora: {a['media_fora_sofridos']}")
 
         st.markdown('<hr class="custom">', unsafe_allow_html=True)
         st.markdown("### 💰 Value Bet")
