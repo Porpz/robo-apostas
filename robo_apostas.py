@@ -26,10 +26,6 @@ st.markdown("""
     border: 1px solid #374151;
     box-shadow: 0 4px 12px rgba(0,0,0,0.25);
 }
-.card h3 {
-    margin-top: 0;
-    margin-bottom: 8px;
-}
 .badge {
     display: inline-block;
     padding: 6px 10px;
@@ -83,30 +79,19 @@ def buscar_jogos_brasileirao(inicio, fim):
 
 
 @st.cache_data(ttl=300)
-def buscar_partidas_time(team_id):
-    url = f"https://api.football-data.org/v4/teams/{team_id}/matches?status=FINISHED&limit=50"
+def buscar_historico_brasileirao():
+    url = "https://api.football-data.org/v4/competitions/BSA/matches?status=FINISHED"
     r = requests.get(url, headers=HEADERS, timeout=20)
-
-    if r.status_code == 429:
-        return 429, {}
-    if r.status_code != 200:
-        return r.status_code, {}
-
-    return 200, r.json()
+    return r.status_code, r.json() if r.status_code == 200 else {}
 
 
-def estatisticas_time(team_id):
-    status, dados = buscar_partidas_time(team_id)
-
-    if status != 200:
-        return {"erro": status}
-
+def construir_stats_time(team_id, matches):
     casa_feitos = []
     casa_sofridos = []
     fora_feitos = []
     fora_sofridos = []
 
-    for j in dados.get("matches", []):
+    for j in matches:
         home_goals = j["score"]["fullTime"]["home"]
         away_goals = j["score"]["fullTime"]["away"]
 
@@ -117,7 +102,7 @@ def estatisticas_time(team_id):
             if len(casa_feitos) < 10:
                 casa_feitos.append(home_goals)
                 casa_sofridos.append(away_goals)
-        else:
+        elif j["awayTeam"]["id"] == team_id:
             if len(fora_feitos) < 10:
                 fora_feitos.append(away_goals)
                 fora_sofridos.append(home_goals)
@@ -160,18 +145,18 @@ def analisar_jogo(stats_casa, stats_fora):
 
     over25_casa = sum(1 for f, s in zip(casa_feitos, casa_sofridos) if (f + s) >= 3)
     over25_fora = sum(1 for f, s in zip(fora_feitos, fora_sofridos) if (f + s) >= 3)
-    total_jogos_over25 = len(casa_feitos) + len(fora_feitos)
-    base_over25 = int(((over25_casa + over25_fora) / total_jogos_over25) * 100) if total_jogos_over25 else 0
+    total_over25 = len(casa_feitos) + len(fora_feitos)
+    base_over25 = int(((over25_casa + over25_fora) / total_over25) * 100) if total_over25 else 0
 
     btts_casa = sum(1 for f, s in zip(casa_feitos, casa_sofridos) if f > 0 and s > 0)
     btts_fora = sum(1 for f, s in zip(fora_feitos, fora_sofridos) if f > 0 and s > 0)
-    total_jogos_btts = len(casa_feitos) + len(fora_feitos)
-    base_btts = int(((btts_casa + btts_fora) / total_jogos_btts) * 100) if total_jogos_btts else 0
+    total_btts = len(casa_feitos) + len(fora_feitos)
+    base_btts = int(((btts_casa + btts_fora) / total_btts) * 100) if total_btts else 0
 
     over15_casa = sum(1 for f, s in zip(casa_feitos, casa_sofridos) if (f + s) >= 2)
     over15_fora = sum(1 for f, s in zip(fora_feitos, fora_sofridos) if (f + s) >= 2)
-    total_jogos_over15 = len(casa_feitos) + len(fora_feitos)
-    base_over15 = int(((over15_casa + over15_fora) / total_jogos_over15) * 100) if total_jogos_over15 else 0
+    total_over15 = len(casa_feitos) + len(fora_feitos)
+    base_over15 = int(((over15_casa + over15_fora) / total_over15) * 100) if total_over15 else 0
 
     ajuste_over15 = min(int((gols_esperados / 1.8) * 10), 15)
     ajuste_over25 = min(int((gols_esperados / 2.6) * 12), 18)
@@ -266,19 +251,21 @@ def analisar():
     inicio = hoje.strftime("%Y-%m-%d")
     fim = (hoje + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    status, dados = buscar_jogos_brasileirao(inicio, fim)
+    status_jogos, dados_jogos = buscar_jogos_brasileirao(inicio, fim)
+    status_hist, dados_hist = buscar_historico_brasileirao()
 
-    if status == 429:
+    if status_jogos == 429 or status_hist == 429:
         st.error("Erro API 429: limite atingido. Espere 1 a 2 minutos e teste novamente.")
         return
 
-    if status != 200:
-        st.error(f"Erro API: {status}")
+    if status_jogos != 200 or status_hist != 200:
+        st.error("Erro ao buscar dados do Brasileirão.")
         return
 
+    historico_matches = dados_hist.get("matches", [])
     jogos = []
 
-    for j in dados.get("matches", []):
+    for j in dados_jogos.get("matches", []):
         if j.get("status") not in ["SCHEDULED", "TIMED"]:
             continue
 
@@ -287,15 +274,8 @@ def analisar():
         id_casa = j["homeTeam"]["id"]
         id_fora = j["awayTeam"]["id"]
 
-        stats_casa = estatisticas_time(id_casa)
-        stats_fora = estatisticas_time(id_fora)
-
-        if stats_casa.get("erro") == 429 or stats_fora.get("erro") == 429:
-            st.error("Erro API 429 nas estatísticas dos times. Espere 1 a 2 minutos e teste novamente.")
-            return
-
-        if "erro" in stats_casa or "erro" in stats_fora:
-            continue
+        stats_casa = construir_stats_time(id_casa, historico_matches)
+        stats_fora = construir_stats_time(id_fora, historico_matches)
 
         analise = analisar_jogo(stats_casa, stats_fora)
 
