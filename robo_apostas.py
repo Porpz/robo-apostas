@@ -295,8 +295,6 @@ def mostrar_value(jogo, nome_mercado, odd_modelo, chave):
 
 
 def mostrar_painel_lucro():
-    st.subheader("📊 Painel de Lucro")
-
     if not st.session_state.historico:
         st.info("Nenhuma aposta no histórico ainda.")
         return
@@ -328,7 +326,7 @@ def mostrar_painel_lucro():
     st.write(f"✅ Greens: {greens} | ❌ Reds: {reds} | ⏳ Pendentes: {total_apostas - resolvidas}")
 
 
-def analisar():
+def gerar_jogos():
     hoje = datetime.utcnow()
     inicio = hoje.strftime("%Y-%m-%d")
     fim = (hoje + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -338,11 +336,11 @@ def analisar():
 
     if status_jogos == 429 or status_hist == 429:
         st.error("Erro API 429: limite atingido. Espere 1 a 2 minutos e teste novamente.")
-        return
+        return []
 
     if status_jogos != 200 or status_hist != 200:
         st.error("Erro ao buscar dados do Brasileirão.")
-        return
+        return []
 
     historico_matches = dados_hist.get("matches", [])
     jogos = []
@@ -374,90 +372,99 @@ def analisar():
         })
 
     jogos.sort(key=lambda x: x["score"], reverse=True)
+    return jogos
 
-    mostrar_painel_lucro()
 
-    if not jogos:
-        st.warning("Nenhum jogo encontrado para hoje e amanhã.")
-        return
+tabs = st.tabs(["📊 Análise", "📒 Histórico", "💰 Painel"])
 
-    st.subheader("⭐ TOP APOSTAS")
+with tabs[0]:
+    if st.button("🔎 ANALISAR JOGOS"):
+        st.session_state.analisar = True
 
-    for item in jogos[:10]:
-        casa = item["casa"]
-        fora = item["fora"]
-        stats_casa = item["stats_casa"]
-        stats_fora = item["stats_fora"]
-        a = item["analise"]
-        jogo_nome = item["jogo"]
+    if st.session_state.analisar:
+        jogos = gerar_jogos()
 
-        badge_class = (
-            "badge-strong" if a["badge"] == "strong"
-            else "badge-good" if a["badge"] == "good"
-            else "badge-weak"
-        )
+        if not jogos:
+            st.warning("Nenhum jogo encontrado para hoje e amanhã.")
+        else:
+            st.subheader("⭐ TOP APOSTAS")
 
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown(f"<h3>⚽ {jogo_nome}</h3>", unsafe_allow_html=True)
-        st.markdown(
-            f'<span class="badge {badge_class}">{a["sinal"]}</span>'
-            f'<span class="badge badge-good">Mercado: {a["mercado"]}</span>'
-            f'<span class="badge badge-good">Confiança: {a["confianca"]}</span>',
-            unsafe_allow_html=True
-        )
+            for item in jogos[:10]:
+                casa = item["casa"]
+                fora = item["fora"]
+                stats_casa = item["stats_casa"]
+                stats_fora = item["stats_fora"]
+                a = item["analise"]
+                jogo_nome = item["jogo"]
 
-        st.write(
-            f"**Base usada:** {casa} em casa: {len(stats_casa['casa_feitos'])} jogos | "
-            f"{fora} fora: {len(stats_fora['fora_feitos'])} jogos | "
-            f"{casa} gerais: {len(stats_casa['gerais_feitos'])} jogos | "
-            f"{fora} gerais: {len(stats_fora['gerais_feitos'])} jogos"
-        )
+                badge_class = (
+                    "badge-strong" if a["badge"] == "strong"
+                    else "badge-good" if a["badge"] == "good"
+                    else "badge-weak"
+                )
 
-        c1, c2, c3 = st.columns(3)
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.markdown(f"<h3>⚽ {jogo_nome}</h3>", unsafe_allow_html=True)
+                st.markdown(
+                    f'<span class="badge {badge_class}">{a["sinal"]}</span>'
+                    f'<span class="badge badge-good">Mercado: {a["mercado"]}</span>'
+                    f'<span class="badge badge-good">Confiança: {a["confianca"]}</span>',
+                    unsafe_allow_html=True
+                )
 
-        with c1:
-            st.markdown('<div class="stat-box"><div class="small-title">Gols esperados</div>'
-                        f'<div class="big-number">{a["gols_esperados"]}</div></div>', unsafe_allow_html=True)
-        with c2:
-            st.markdown('<div class="stat-box"><div class="small-title">Prob Over 2.5</div>'
-                        f'<div class="big-number">{a["prob_over25"]}%</div></div>', unsafe_allow_html=True)
-        with c3:
-            st.markdown('<div class="stat-box"><div class="small-title">Prob Ambas</div>'
-                        f'<div class="big-number">{a["prob_btts"]}%</div></div>', unsafe_allow_html=True)
+                st.write(
+                    f"**Base usada:** {casa} em casa: {len(stats_casa['casa_feitos'])} jogos | "
+                    f"{fora} fora: {len(stats_fora['fora_feitos'])} jogos | "
+                    f"{casa} gerais: {len(stats_casa['gerais_feitos'])} jogos | "
+                    f"{fora} gerais: {len(stats_fora['gerais_feitos'])} jogos"
+                )
 
-        col1, col2 = st.columns(2)
+                c1, c2, c3 = st.columns(3)
 
-        with col1:
-            st.markdown(f"### 🏠 {casa} (CASA)")
-            st.write(f"⚽ Gols feitos em casa: {lista_texto(stats_casa['casa_feitos'])}")
-            st.write(f"🥅 Gols sofridos em casa: {lista_texto(stats_casa['casa_sofridos'])}")
-            st.write(f"⚽ Últimos 10 gerais feitos: {lista_texto(stats_casa['gerais_feitos'])}")
-            st.write(f"🥅 Últimos 10 gerais sofridos: {lista_texto(stats_casa['gerais_sofridos'])}")
-            st.write(f"Média feitos em casa: {a['media_casa_feitos']}")
-            st.write(f"Média sofridos em casa: {a['media_casa_sofridos']}")
+                with c1:
+                    st.markdown('<div class="stat-box"><div class="small-title">Gols esperados</div>'
+                                f'<div class="big-number">{a["gols_esperados"]}</div></div>', unsafe_allow_html=True)
+                with c2:
+                    st.markdown('<div class="stat-box"><div class="small-title">Prob Over 2.5</div>'
+                                f'<div class="big-number">{a["prob_over25"]}%</div></div>', unsafe_allow_html=True)
+                with c3:
+                    st.markdown('<div class="stat-box"><div class="small-title">Prob Ambas</div>'
+                                f'<div class="big-number">{a["prob_btts"]}%</div></div>', unsafe_allow_html=True)
 
-        with col2:
-            st.markdown(f"### ✈️ {fora} (FORA)")
-            st.write(f"⚽ Gols feitos fora: {lista_texto(stats_fora['fora_feitos'])}")
-            st.write(f"🥅 Gols sofridos fora: {lista_texto(stats_fora['fora_sofridos'])}")
-            st.write(f"⚽ Últimos 10 gerais feitos: {lista_texto(stats_fora['gerais_feitos'])}")
-            st.write(f"🥅 Últimos 10 gerais sofridos: {lista_texto(stats_fora['gerais_sofridos'])}")
-            st.write(f"Média feitos fora: {a['media_fora_feitos']}")
-            st.write(f"Média sofridos fora: {a['media_fora_sofridos']}")
+                col1, col2 = st.columns(2)
 
-        st.markdown('<hr class="custom">', unsafe_allow_html=True)
-        st.markdown("### 💰 Value Bet")
-        v1, v2, v3 = st.columns(3)
+                with col1:
+                    st.markdown(f"### 🏠 {casa} (CASA)")
+                    st.write(f"⚽ Gols feitos em casa: {lista_texto(stats_casa['casa_feitos'])}")
+                    st.write(f"🥅 Gols sofridos em casa: {lista_texto(stats_casa['casa_sofridos'])}")
+                    st.write(f"⚽ Últimos 10 gerais feitos: {lista_texto(stats_casa['gerais_feitos'])}")
+                    st.write(f"🥅 Últimos 10 gerais sofridos: {lista_texto(stats_casa['gerais_sofridos'])}")
+                    st.write(f"Média feitos em casa: {a['media_casa_feitos']}")
+                    st.write(f"Média sofridos em casa: {a['media_casa_sofridos']}")
 
-        with v1:
-            mostrar_value(jogo_nome, "Over 1.5", a["odd_justa_over15"], f"{casa}_{fora}_over15")
-        with v2:
-            mostrar_value(jogo_nome, "Over 2.5", a["odd_justa_over25"], f"{casa}_{fora}_over25")
-        with v3:
-            mostrar_value(jogo_nome, "Ambas Marcam", a["odd_justa_btts"], f"{casa}_{fora}_btts")
+                with col2:
+                    st.markdown(f"### ✈️ {fora} (FORA)")
+                    st.write(f"⚽ Gols feitos fora: {lista_texto(stats_fora['fora_feitos'])}")
+                    st.write(f"🥅 Gols sofridos fora: {lista_texto(stats_fora['fora_sofridos'])}")
+                    st.write(f"⚽ Últimos 10 gerais feitos: {lista_texto(stats_fora['gerais_feitos'])}")
+                    st.write(f"🥅 Últimos 10 gerais sofridos: {lista_texto(stats_fora['gerais_sofridos'])}")
+                    st.write(f"Média feitos fora: {a['media_fora_feitos']}")
+                    st.write(f"Média sofridos fora: {a['media_fora_sofridos']}")
 
-        st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown('<hr class="custom">', unsafe_allow_html=True)
+                st.markdown("### 💰 Value Bet")
+                v1, v2, v3 = st.columns(3)
 
+                with v1:
+                    mostrar_value(jogo_nome, "Over 1.5", a["odd_justa_over15"], f"{casa}_{fora}_over15")
+                with v2:
+                    mostrar_value(jogo_nome, "Over 2.5", a["odd_justa_over25"], f"{casa}_{fora}_over25")
+                with v3:
+                    mostrar_value(jogo_nome, "Ambas Marcam", a["odd_justa_btts"], f"{casa}_{fora}_btts")
+
+                st.markdown('</div>', unsafe_allow_html=True)
+
+with tabs[1]:
     st.subheader("📒 Histórico de Apostas")
 
     if st.session_state.historico:
@@ -494,9 +501,6 @@ def analisar():
     else:
         st.info("Nenhuma aposta salva no histórico ainda.")
 
-
-if st.button("🔎 ANALISAR JOGOS"):
-    st.session_state.analisar = True
-
-if st.session_state.analisar:
-    analisar()
+with tabs[2]:
+    st.subheader("💰 Painel de Lucro")
+    mostrar_painel_lucro()
