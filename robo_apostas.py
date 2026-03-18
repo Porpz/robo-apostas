@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 from datetime import datetime, timedelta
+import pandas as pd
 
 API_TOKEN = "845305378d0846c7b4ce6e9b12652ffd"
 
@@ -8,6 +9,12 @@ st.set_page_config(page_title="Robô PRO", layout="wide")
 st.title("⚽ Robô PRO de Apostas")
 
 HEADERS = {"X-Auth-Token": API_TOKEN}
+
+if "analisar" not in st.session_state:
+    st.session_state.analisar = False
+
+if "historico" not in st.session_state:
+    st.session_state.historico = []
 
 st.markdown("""
 <style>
@@ -58,12 +65,6 @@ st.markdown("""
 .big-number {
     font-size: 20px;
     font-weight: 700;
-}
-.section-title {
-    font-size: 18px;
-    font-weight: 700;
-    margin-top: 10px;
-    margin-bottom: 10px;
 }
 hr.custom {
     border: none;
@@ -226,22 +227,38 @@ def lista_texto(lista):
     return ", ".join(map(str, lista)) if lista else "Sem dados"
 
 
-def mostrar_value(nome_mercado, odd_modelo, chave):
+def registrar_historico(jogo, mercado, odd_usuario, odd_justa_modelo):
+    edge = round(((odd_usuario / odd_justa_modelo) - 1) * 100, 2) if odd_justa_modelo > 0 else 0
+    st.session_state.historico.append({
+        "Jogo": jogo,
+        "Mercado": mercado,
+        "Odd da casa": odd_usuario,
+        "Odd justa": odd_justa_modelo,
+        "Edge %": edge
+    })
+
+
+def mostrar_value(jogo, nome_mercado, odd_modelo, chave):
     odd_usuario = st.number_input(
         f"Odd da casa para {nome_mercado}",
         min_value=1.01,
         step=0.01,
-        key=chave
+        key=f"{chave}_odd"
     )
 
     st.write(f"Odd justa: {odd_modelo}")
 
     if odd_usuario > 1.01:
         edge = round(((odd_usuario / odd_modelo) - 1) * 100, 2) if odd_modelo > 0 else 0
+
         if odd_usuario > odd_modelo:
             st.success(f"💰 VALUE BET | +{edge}%")
         else:
             st.warning(f"❌ Sem valor | {edge}%")
+
+        if st.button(f"Salvar no histórico - {nome_mercado}", key=f"{chave}_save"):
+            registrar_historico(jogo, nome_mercado, odd_usuario, odd_modelo)
+            st.success("Aposta salva no histórico.")
 
 
 def analisar():
@@ -308,6 +325,7 @@ def analisar():
         stats_casa = item["stats_casa"]
         stats_fora = item["stats_fora"]
         a = item["analise"]
+        jogo_nome = item["jogo"]
 
         badge_class = (
             "badge-strong" if a["badge"] == "strong"
@@ -316,7 +334,7 @@ def analisar():
         )
 
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown(f"<h3>⚽ {item['jogo']}</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3>⚽ {jogo_nome}</h3>", unsafe_allow_html=True)
         st.markdown(
             f'<span class="badge {badge_class}">{a["sinal"]}</span>'
             f'<span class="badge badge-good">Mercado: {a["mercado"]}</span>'
@@ -362,14 +380,32 @@ def analisar():
         v1, v2, v3 = st.columns(3)
 
         with v1:
-            mostrar_value("Over 1.5", a["odd_justa_over15"], f"{casa}_{fora}_over15")
+            mostrar_value(jogo_nome, "Over 1.5", a["odd_justa_over15"], f"{casa}_{fora}_over15")
         with v2:
-            mostrar_value("Over 2.5", a["odd_justa_over25"], f"{casa}_{fora}_over25")
+            mostrar_value(jogo_nome, "Over 2.5", a["odd_justa_over25"], f"{casa}_{fora}_over25")
         with v3:
-            mostrar_value("Ambas Marcam", a["odd_justa_btts"], f"{casa}_{fora}_btts")
+            mostrar_value(jogo_nome, "Ambas Marcam", a["odd_justa_btts"], f"{casa}_{fora}_btts")
 
         st.markdown('</div>', unsafe_allow_html=True)
 
+    st.subheader("📒 Histórico de Value Bets")
+
+    if st.session_state.historico:
+        df = pd.DataFrame(st.session_state.historico)
+        st.dataframe(df, use_container_width=True)
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Baixar histórico em CSV",
+            csv,
+            file_name="historico_value_bets.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("Nenhuma aposta salva no histórico ainda.")
+
 
 if st.button("🔎 ANALISAR JOGOS"):
+    st.session_state.analisar = True
+
+if st.session_state.analisar:
     analisar()
