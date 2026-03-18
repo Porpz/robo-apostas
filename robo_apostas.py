@@ -235,15 +235,33 @@ def lista_texto(lista):
     return ", ".join(map(str, lista)) if lista else "Sem dados"
 
 
-def registrar_historico(jogo, mercado, odd_usuario, odd_justa_modelo):
+def registrar_historico(jogo, mercado, odd_usuario, odd_justa_modelo, stake):
     edge = round(((odd_usuario / odd_justa_modelo) - 1) * 100, 2) if odd_justa_modelo > 0 else 0
     st.session_state.historico.append({
         "Jogo": jogo,
         "Mercado": mercado,
         "Odd da casa": odd_usuario,
         "Odd justa": odd_justa_modelo,
-        "Edge %": edge
+        "Edge %": edge,
+        "Stake": stake,
+        "Resultado": "Pendente",
+        "Lucro": 0.0
     })
+
+
+def atualizar_resultado_aposta(index, resultado):
+    aposta = st.session_state.historico[index]
+    stake = float(aposta["Stake"])
+    odd = float(aposta["Odd da casa"])
+
+    aposta["Resultado"] = resultado
+
+    if resultado == "Green":
+        aposta["Lucro"] = round((stake * odd) - stake, 2)
+    elif resultado == "Red":
+        aposta["Lucro"] = round(-stake, 2)
+    else:
+        aposta["Lucro"] = 0.0
 
 
 def mostrar_value(jogo, nome_mercado, odd_modelo, chave):
@@ -252,6 +270,13 @@ def mostrar_value(jogo, nome_mercado, odd_modelo, chave):
         min_value=1.01,
         step=0.01,
         key=f"{chave}_odd"
+    )
+
+    stake = st.number_input(
+        f"Stake para {nome_mercado}",
+        min_value=0.0,
+        step=1.0,
+        key=f"{chave}_stake"
     )
 
     st.write(f"Odd justa: {odd_modelo}")
@@ -265,8 +290,42 @@ def mostrar_value(jogo, nome_mercado, odd_modelo, chave):
             st.warning(f"❌ Sem valor | {edge}%")
 
         if st.button(f"Salvar no histórico - {nome_mercado}", key=f"{chave}_save"):
-            registrar_historico(jogo, nome_mercado, odd_usuario, odd_modelo)
+            registrar_historico(jogo, nome_mercado, odd_usuario, odd_modelo, stake)
             st.success("Aposta salva no histórico.")
+
+
+def mostrar_painel_lucro():
+    st.subheader("📊 Painel de Lucro")
+
+    if not st.session_state.historico:
+        st.info("Nenhuma aposta no histórico ainda.")
+        return
+
+    total_apostas = len(st.session_state.historico)
+    total_stake = sum(float(a["Stake"]) for a in st.session_state.historico)
+    lucro_total = sum(float(a["Lucro"]) for a in st.session_state.historico)
+
+    greens = sum(1 for a in st.session_state.historico if a["Resultado"] == "Green")
+    reds = sum(1 for a in st.session_state.historico if a["Resultado"] == "Red")
+    resolvidas = greens + reds
+
+    taxa_acerto = round((greens / resolvidas) * 100, 2) if resolvidas > 0 else 0.0
+    roi = round((lucro_total / total_stake) * 100, 2) if total_stake > 0 else 0.0
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    with c1:
+        st.metric("Apostas", total_apostas)
+    with c2:
+        st.metric("Total apostado", f"R$ {total_stake:.2f}")
+    with c3:
+        st.metric("Lucro", f"R$ {lucro_total:.2f}")
+    with c4:
+        st.metric("ROI", f"{roi:.2f}%")
+    with c5:
+        st.metric("Taxa acerto", f"{taxa_acerto:.2f}%")
+
+    st.write(f"✅ Greens: {greens} | ❌ Reds: {reds} | ⏳ Pendentes: {total_apostas - resolvidas}")
 
 
 def analisar():
@@ -315,6 +374,8 @@ def analisar():
         })
 
     jogos.sort(key=lambda x: x["score"], reverse=True)
+
+    mostrar_painel_lucro()
 
     if not jogos:
         st.warning("Nenhum jogo encontrado para hoje e amanhã.")
@@ -397,16 +458,37 @@ def analisar():
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.subheader("📒 Histórico de Value Bets")
+    st.subheader("📒 Histórico de Apostas")
 
     if st.session_state.historico:
+        for i, aposta in enumerate(st.session_state.historico):
+            st.markdown(f"**{aposta['Jogo']}** | {aposta['Mercado']}")
+            st.write(
+                f"Odd casa: {aposta['Odd da casa']} | Odd justa: {aposta['Odd justa']} | "
+                f"Stake: R$ {float(aposta['Stake']):.2f} | Edge: {aposta['Edge %']}% | "
+                f"Resultado: {aposta['Resultado']} | Lucro: R$ {float(aposta['Lucro']):.2f}"
+            )
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if st.button("✅ Green", key=f"green_{i}"):
+                    atualizar_resultado_aposta(i, "Green")
+            with c2:
+                if st.button("❌ Red", key=f"red_{i}"):
+                    atualizar_resultado_aposta(i, "Red")
+            with c3:
+                if st.button("⏳ Pendente", key=f"pend_{i}"):
+                    atualizar_resultado_aposta(i, "Pendente")
+
+            st.divider()
+
         df = pd.DataFrame(st.session_state.historico)
         st.dataframe(df, use_container_width=True)
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(
             "⬇️ Baixar histórico em CSV",
             csv,
-            file_name="historico_value_bets.csv",
+            file_name="historico_apostas.csv",
             mime="text/csv"
         )
     else:
