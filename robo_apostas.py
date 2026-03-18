@@ -10,12 +10,24 @@ st.title("⚽ Robô PRO de Apostas")
 
 HEADERS = {"X-Auth-Token": API_TOKEN}
 
+# =========================
+# SESSION STATE
+# =========================
 if "analisar" not in st.session_state:
     st.session_state.analisar = False
 
 if "historico" not in st.session_state:
     st.session_state.historico = []
 
+if "banca_inicial" not in st.session_state:
+    st.session_state.banca_inicial = 100.0
+
+if "percentual_stake" not in st.session_state:
+    st.session_state.percentual_stake = 2.0
+
+# =========================
+# CSS
+# =========================
 st.markdown("""
 <style>
 .card {
@@ -70,7 +82,9 @@ hr.custom {
 </style>
 """, unsafe_allow_html=True)
 
-
+# =========================
+# API
+# =========================
 @st.cache_data(ttl=300)
 def buscar_jogos_brasileirao(inicio, fim):
     url = f"https://api.football-data.org/v4/competitions/BSA/matches?dateFrom={inicio}&dateTo={fim}"
@@ -84,7 +98,9 @@ def buscar_historico_brasileirao():
     r = requests.get(url, headers=HEADERS, timeout=20)
     return r.status_code, r.json() if r.status_code == 200 else {}
 
-
+# =========================
+# FUNÇÕES DE CÁLCULO
+# =========================
 def construir_stats_time(team_id, matches):
     matches_ordenadas = sorted(matches, key=lambda j: j.get("utcDate", ""), reverse=True)
 
@@ -149,6 +165,32 @@ def odd_justa(prob_percent):
     if prob_percent <= 0:
         return 0.0
     return round(100 / prob_percent, 2)
+
+
+def lista_texto(lista):
+    return ", ".join(map(str, lista)) if lista else "Sem dados"
+
+
+def calcular_lucro_aposta(stake, odd, resultado):
+    stake = float(stake)
+    odd = float(odd)
+
+    if resultado == "Green":
+        return round((stake * odd) - stake, 2)
+    if resultado == "Red":
+        return round(-stake, 2)
+    return 0.0
+
+
+def obter_banca_atual():
+    lucro_total = sum(float(a["Lucro"]) for a in st.session_state.historico)
+    return round(float(st.session_state.banca_inicial) + lucro_total, 2)
+
+
+def stake_sugerida():
+    banca = obter_banca_atual()
+    percentual = float(st.session_state.percentual_stake)
+    return round(banca * (percentual / 100), 2)
 
 
 def analisar_jogo(stats_casa, stats_fora):
@@ -230,20 +272,18 @@ def analisar_jogo(stats_casa, stats_fora):
         "badge": badge
     }
 
-
-def lista_texto(lista):
-    return ", ".join(map(str, lista)) if lista else "Sem dados"
-
-
+# =========================
+# HISTÓRICO E BANCA
+# =========================
 def registrar_historico(jogo, mercado, odd_usuario, odd_justa_modelo, stake):
     edge = round(((odd_usuario / odd_justa_modelo) - 1) * 100, 2) if odd_justa_modelo > 0 else 0
     st.session_state.historico.append({
         "Jogo": jogo,
         "Mercado": mercado,
-        "Odd da casa": odd_usuario,
-        "Odd justa": odd_justa_modelo,
+        "Odd da casa": float(odd_usuario),
+        "Odd justa": float(odd_justa_modelo),
         "Edge %": edge,
-        "Stake": stake,
+        "Stake": float(stake),
         "Resultado": "Pendente",
         "Lucro": 0.0
     })
@@ -251,17 +291,8 @@ def registrar_historico(jogo, mercado, odd_usuario, odd_justa_modelo, stake):
 
 def atualizar_resultado_aposta(index, resultado):
     aposta = st.session_state.historico[index]
-    stake = float(aposta["Stake"])
-    odd = float(aposta["Odd da casa"])
-
     aposta["Resultado"] = resultado
-
-    if resultado == "Green":
-        aposta["Lucro"] = round((stake * odd) - stake, 2)
-    elif resultado == "Red":
-        aposta["Lucro"] = round(-stake, 2)
-    else:
-        aposta["Lucro"] = 0.0
+    aposta["Lucro"] = calcular_lucro_aposta(aposta["Stake"], aposta["Odd da casa"], resultado)
 
 
 def mostrar_value(jogo, nome_mercado, odd_modelo, chave):
@@ -272,14 +303,18 @@ def mostrar_value(jogo, nome_mercado, odd_modelo, chave):
         key=f"{chave}_odd"
     )
 
+    stake_default = stake_sugerida()
+
     stake = st.number_input(
         f"Stake para {nome_mercado}",
         min_value=0.0,
         step=1.0,
+        value=float(stake_default),
         key=f"{chave}_stake"
     )
 
     st.write(f"Odd justa: {odd_modelo}")
+    st.write(f"Stake sugerida: R$ {stake_default:.2f}")
 
     if odd_usuario > 1.01:
         edge = round(((odd_usuario / odd_modelo) - 1) * 100, 2) if odd_modelo > 0 else 0
@@ -295,7 +330,16 @@ def mostrar_value(jogo, nome_mercado, odd_modelo, chave):
 
 
 def mostrar_painel_lucro():
+    banca_atual = obter_banca_atual()
+
     if not st.session_state.historico:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Banca inicial", f"R$ {float(st.session_state.banca_inicial):.2f}")
+        with c2:
+            st.metric("Banca atual", f"R$ {banca_atual:.2f}")
+        with c3:
+            st.metric("Stake sugerida", f"R$ {stake_sugerida():.2f}")
         st.info("Nenhuma aposta no histórico ainda.")
         return
 
@@ -310,22 +354,32 @@ def mostrar_painel_lucro():
     taxa_acerto = round((greens / resolvidas) * 100, 2) if resolvidas > 0 else 0.0
     roi = round((lucro_total / total_stake) * 100, 2) if total_stake > 0 else 0.0
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
 
     with c1:
-        st.metric("Apostas", total_apostas)
+        st.metric("Banca inicial", f"R$ {float(st.session_state.banca_inicial):.2f}")
     with c2:
-        st.metric("Total apostado", f"R$ {total_stake:.2f}")
+        st.metric("Banca atual", f"R$ {banca_atual:.2f}")
     with c3:
-        st.metric("Lucro", f"R$ {lucro_total:.2f}")
+        st.metric("Apostas", total_apostas)
     with c4:
-        st.metric("ROI", f"{roi:.2f}%")
+        st.metric("Total apostado", f"R$ {total_stake:.2f}")
     with c5:
+        st.metric("Lucro", f"R$ {lucro_total:.2f}")
+    with c6:
+        st.metric("Stake sugerida", f"R$ {stake_sugerida():.2f}")
+
+    c7, c8, c9 = st.columns(3)
+    with c7:
+        st.metric("ROI", f"{roi:.2f}%")
+    with c8:
         st.metric("Taxa acerto", f"{taxa_acerto:.2f}%")
+    with c9:
+        st.metric("Greens / Reds", f"{greens} / {reds}")
 
-    st.write(f"✅ Greens: {greens} | ❌ Reds: {reds} | ⏳ Pendentes: {total_apostas - resolvidas}")
-
-
+# =========================
+# GERAÇÃO DOS JOGOS
+# =========================
 def gerar_jogos():
     hoje = datetime.utcnow()
     inicio = hoje.strftime("%Y-%m-%d")
@@ -358,7 +412,6 @@ def gerar_jogos():
         stats_fora = construir_stats_time(id_fora, historico_matches)
 
         analise = analisar_jogo(stats_casa, stats_fora)
-
         score = analise["prob_over15"] + analise["prob_over25"] + analise["prob_btts"]
 
         jogos.append({
@@ -374,7 +427,9 @@ def gerar_jogos():
     jogos.sort(key=lambda x: x["score"], reverse=True)
     return jogos
 
-
+# =========================
+# ABAS
+# =========================
 tabs = st.tabs(["📊 Análise", "📒 Histórico", "💰 Painel"])
 
 with tabs[0]:
@@ -503,4 +558,20 @@ with tabs[1]:
 
 with tabs[2]:
     st.subheader("💰 Painel de Lucro")
+
+    st.session_state.banca_inicial = st.number_input(
+        "Banca inicial",
+        min_value=0.0,
+        step=10.0,
+        value=float(st.session_state.banca_inicial)
+    )
+
+    st.session_state.percentual_stake = st.number_input(
+        "Stake por aposta (% da banca)",
+        min_value=0.1,
+        max_value=10.0,
+        step=0.1,
+        value=float(st.session_state.percentual_stake)
+    )
+
     mostrar_painel_lucro()
