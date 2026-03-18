@@ -2,8 +2,10 @@ import streamlit as st
 import requests
 from datetime import datetime, timedelta
 import pandas as pd
+import os
 
 API_TOKEN = "845305378d0846c7b4ce6e9b12652ffd"
+ARQUIVO_HISTORICO = "historico_apostas.csv"
 
 st.set_page_config(page_title="Robô PRO", layout="wide")
 st.title("⚽ Robô PRO de Apostas")
@@ -15,6 +17,9 @@ if "analisar" not in st.session_state:
 
 if "historico" not in st.session_state:
     st.session_state.historico = []
+
+if "historico_carregado" not in st.session_state:
+    st.session_state.historico_carregado = False
 
 if "banca_inicial" not in st.session_state:
     st.session_state.banca_inicial = 100.0
@@ -75,6 +80,27 @@ hr.custom {
 }
 </style>
 """, unsafe_allow_html=True)
+
+
+def carregar_historico():
+    if os.path.exists(ARQUIVO_HISTORICO):
+        try:
+            df = pd.read_csv(ARQUIVO_HISTORICO)
+            st.session_state.historico = df.to_dict(orient="records")
+        except:
+            st.session_state.historico = []
+    else:
+        st.session_state.historico = []
+
+
+def salvar_historico():
+    df = pd.DataFrame(st.session_state.historico)
+    df.to_csv(ARQUIVO_HISTORICO, index=False)
+
+
+if not st.session_state.historico_carregado:
+    carregar_historico()
+    st.session_state.historico_carregado = True
 
 
 @st.cache_data(ttl=300)
@@ -357,7 +383,8 @@ def analisar_jogo(stats_casa, stats_fora):
 
 def registrar_historico(jogo, mercado, odd_usuario, odd_justa_modelo, stake):
     edge = round(((odd_usuario / odd_justa_modelo) - 1) * 100, 2) if odd_justa_modelo > 0 else 0
-    st.session_state.historico.append({
+
+    nova_aposta = {
         "Jogo": jogo,
         "Mercado": mercado,
         "Odd da casa": float(odd_usuario),
@@ -366,13 +393,17 @@ def registrar_historico(jogo, mercado, odd_usuario, odd_justa_modelo, stake):
         "Stake": float(stake),
         "Resultado": "Pendente",
         "Lucro": 0.0
-    })
+    }
+
+    st.session_state.historico.append(nova_aposta)
+    salvar_historico()
 
 
 def atualizar_resultado_aposta(index, resultado):
     aposta = st.session_state.historico[index]
     aposta["Resultado"] = resultado
     aposta["Lucro"] = calcular_lucro_aposta(aposta["Stake"], aposta["Odd da casa"], resultado)
+    salvar_historico()
 
 
 def mostrar_value(jogo, nome_mercado, odd_modelo, chave):
@@ -628,7 +659,7 @@ with tabs[1]:
         st.download_button(
             "⬇️ Baixar histórico em CSV",
             csv,
-            file_name="historico_apostas.csv",
+            file_name="historico_apostas_backup.csv",
             mime="text/csv"
         )
     else:
