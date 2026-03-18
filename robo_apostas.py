@@ -91,21 +91,27 @@ def construir_stats_time(team_id, matches):
     fora_feitos = []
     fora_sofridos = []
 
-    for j in matches:
+    # tenta ordenar do mais recente para o mais antigo
+    matches_ordenadas = sorted(
+        matches,
+        key=lambda j: j.get("utcDate", ""),
+        reverse=True
+    )
+
+    for j in matches_ordenadas:
         home_goals = j["score"]["fullTime"]["home"]
         away_goals = j["score"]["fullTime"]["away"]
 
         if home_goals is None or away_goals is None:
             continue
 
-        if j["homeTeam"]["id"] == team_id:
-            if len(casa_feitos) < 10:
-                casa_feitos.append(home_goals)
-                casa_sofridos.append(away_goals)
-        elif j["awayTeam"]["id"] == team_id:
-            if len(fora_feitos) < 10:
-                fora_feitos.append(away_goals)
-                fora_sofridos.append(home_goals)
+        if j["homeTeam"]["id"] == team_id and len(casa_feitos) < 10:
+            casa_feitos.append(home_goals)
+            casa_sofridos.append(away_goals)
+
+        elif j["awayTeam"]["id"] == team_id and len(fora_feitos) < 10:
+            fora_feitos.append(away_goals)
+            fora_sofridos.append(home_goals)
 
         if len(casa_feitos) >= 10 and len(fora_feitos) >= 10:
             break
@@ -158,25 +164,26 @@ def analisar_jogo(stats_casa, stats_fora):
     total_over15 = len(casa_feitos) + len(fora_feitos)
     base_over15 = int(((over15_casa + over15_fora) / total_over15) * 100) if total_over15 else 0
 
-    ajuste_over15 = min(int((gols_esperados / 1.8) * 10), 15)
-    ajuste_over25 = min(int((gols_esperados / 2.6) * 12), 18)
-    ajuste_btts = min(int(((expectativa_gols_casa + expectativa_gols_fora) / 2.4) * 10), 15)
+    # ajustes mais leves
+    ajuste_over15 = min(int((gols_esperados - 1.5) * 8), 8) if gols_esperados > 1.5 else 0
+    ajuste_over25 = min(int((gols_esperados - 2.2) * 10), 10) if gols_esperados > 2.2 else 0
+    ajuste_btts = min(int(min(expectativa_gols_casa, expectativa_gols_fora) * 8), 8)
 
-    prob_over15 = min(base_over15 + ajuste_over15, 95)
-    prob_over25 = min(base_over25 + ajuste_over25, 90)
-    prob_btts = min(base_btts + ajuste_btts, 85)
+    prob_over15 = min(max(base_over15 + ajuste_over15, 5), 85)
+    prob_over25 = min(max(base_over25 + ajuste_over25, 5), 75)
+    prob_btts = min(max(base_btts + ajuste_btts, 5), 68)
 
-    if prob_over25 >= 72 and prob_btts >= 62:
+    if prob_over25 >= 68 and prob_btts >= 58:
         sinal = "🔥 JOGO MUITO FORTE"
         mercado = "Over 2.5 / Ambas Marcam"
         confianca = "Alta"
         badge = "strong"
-    elif prob_over25 >= 63:
+    elif prob_over25 >= 60:
         sinal = "⚡ JOGO BOM"
         mercado = "Over 2.5"
         confianca = "Média"
         badge = "good"
-    elif prob_over15 >= 78:
+    elif prob_over15 >= 72:
         sinal = "✅ JOGO INTERESSANTE"
         mercado = "Over 1.5"
         confianca = "Média"
