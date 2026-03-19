@@ -12,6 +12,9 @@ st.title("⚽ Robô PRO de Apostas")
 
 HEADERS = {"X-Auth-Token": API_TOKEN}
 
+# =========================
+# SESSION STATE
+# =========================
 if "analisar" not in st.session_state:
     st.session_state.analisar = False
 
@@ -27,6 +30,9 @@ if "banca_inicial" not in st.session_state:
 if "percentual_stake" not in st.session_state:
     st.session_state.percentual_stake = 2.0
 
+# =========================
+# CSS
+# =========================
 st.markdown("""
 <style>
 .card {
@@ -81,7 +87,9 @@ hr.custom {
 </style>
 """, unsafe_allow_html=True)
 
-
+# =========================
+# HISTÓRICO LOCAL
+# =========================
 def carregar_historico():
     if os.path.exists(ARQUIVO_HISTORICO):
         try:
@@ -102,7 +110,9 @@ if not st.session_state.historico_carregado:
     carregar_historico()
     st.session_state.historico_carregado = True
 
-
+# =========================
+# API
+# =========================
 @st.cache_data(ttl=300)
 def buscar_jogos_brasileirao(inicio, fim):
     url = f"https://api.football-data.org/v4/competitions/BSA/matches?dateFrom={inicio}&dateTo={fim}"
@@ -116,7 +126,9 @@ def buscar_historico_brasileirao():
     r = requests.get(url, headers=HEADERS, timeout=20)
     return r.status_code, r.json() if r.status_code == 200 else {}
 
-
+# =========================
+# FUNÇÕES DE CÁLCULO
+# =========================
 def construir_stats_time(team_id, matches):
     matches_ordenadas = sorted(matches, key=lambda j: j.get("utcDate", ""), reverse=True)
 
@@ -127,8 +139,6 @@ def construir_stats_time(team_id, matches):
     fora_feitos = []
     fora_sofridos = []
     gerais_resultados = []
-    casa_resultados = []
-    fora_resultados = []
 
     for j in matches_ordenadas:
         home_goals = j["score"]["fullTime"]["home"]
@@ -155,7 +165,6 @@ def construir_stats_time(team_id, matches):
             if len(casa_feitos) < 10:
                 casa_feitos.append(feitos)
                 casa_sofridos.append(sofridos)
-                casa_resultados.append(resultado)
 
         elif j["awayTeam"]["id"] == team_id:
             feitos = away_goals
@@ -171,7 +180,6 @@ def construir_stats_time(team_id, matches):
             if len(fora_feitos) < 10:
                 fora_feitos.append(feitos)
                 fora_sofridos.append(sofridos)
-                fora_resultados.append(resultado)
         else:
             continue
 
@@ -193,10 +201,8 @@ def construir_stats_time(team_id, matches):
         "gerais_resultados": gerais_resultados,
         "casa_feitos": casa_feitos,
         "casa_sofridos": casa_sofridos,
-        "casa_resultados": casa_resultados,
         "fora_feitos": fora_feitos,
-        "fora_sofridos": fora_sofridos,
-        "fora_resultados": fora_resultados
+        "fora_sofridos": fora_sofridos
     }
 
 
@@ -268,6 +274,38 @@ def nivel_amostra(qtd):
     return "Fraca"
 
 
+def calcular_probabilidades_resultado(exp_casa, exp_fora, forma_casa_pts, forma_fora_pts):
+    vantagem_casa = exp_casa - exp_fora
+
+    base_casa = 45 + (vantagem_casa * 18)
+    base_fora = 30 - (vantagem_casa * 12)
+    base_empate = 25 - abs(vantagem_casa * 6)
+
+    ajuste_forma_casa = (forma_casa_pts - forma_fora_pts) * 1.5
+    ajuste_forma_fora = (forma_fora_pts - forma_casa_pts) * 1.5
+
+    prob_casa = base_casa + ajuste_forma_casa
+    prob_fora = base_fora + ajuste_forma_fora
+    prob_empate = base_empate
+
+    prob_casa = max(prob_casa, 5)
+    prob_fora = max(prob_fora, 5)
+    prob_empate = max(prob_empate, 10)
+
+    soma = prob_casa + prob_empate + prob_fora
+
+    prob_casa = round((prob_casa / soma) * 100)
+    prob_empate = round((prob_empate / soma) * 100)
+    prob_fora = round((prob_fora / soma) * 100)
+
+    total = prob_casa + prob_empate + prob_fora
+    diferenca = 100 - total
+
+    prob_casa += diferenca
+
+    return prob_casa, prob_empate, prob_fora
+
+
 def analisar_jogo(stats_casa, stats_fora):
     casa_feitos = stats_casa["casa_feitos"]
     casa_sofridos = stats_casa["casa_sofridos"]
@@ -317,11 +355,23 @@ def analisar_jogo(stats_casa, stats_fora):
     amostra_casa = nivel_amostra(len(casa_feitos))
     amostra_fora = nivel_amostra(len(fora_feitos))
 
+    prob_vitoria_casa, prob_empate, prob_vitoria_fora = calcular_probabilidades_resultado(
+        expectativa_gols_casa,
+        expectativa_gols_fora,
+        forma_casa_pts,
+        forma_fora_pts
+    )
+
+    odd_justa_casa = odd_justa(prob_vitoria_casa)
+    odd_justa_empate = odd_justa(prob_empate)
+    odd_justa_fora = odd_justa(prob_vitoria_fora)
+
     confianca_nota = round(
         (
-            (prob_over15 / 10) * 0.30 +
-            (prob_over25 / 10) * 0.35 +
-            (prob_btts / 10) * 0.20 +
+            (prob_over15 / 10) * 0.25 +
+            (prob_over25 / 10) * 0.25 +
+            (prob_btts / 10) * 0.15 +
+            (prob_vitoria_casa / 10 if prob_vitoria_casa > prob_vitoria_fora else prob_vitoria_fora / 10) * 0.20 +
             (forma_casa_pts / 15) * 10 * 0.075 +
             (forma_fora_pts / 15) * 10 * 0.075
         ),
@@ -364,9 +414,15 @@ def analisar_jogo(stats_casa, stats_fora):
         "prob_over15": prob_over15,
         "prob_over25": prob_over25,
         "prob_btts": prob_btts,
+        "prob_vitoria_casa": prob_vitoria_casa,
+        "prob_empate": prob_empate,
+        "prob_vitoria_fora": prob_vitoria_fora,
         "odd_justa_over15": odd_justa(prob_over15),
         "odd_justa_over25": odd_justa(prob_over25),
         "odd_justa_btts": odd_justa(prob_btts),
+        "odd_justa_casa": odd_justa_casa,
+        "odd_justa_empate": odd_justa_empate,
+        "odd_justa_fora": odd_justa_fora,
         "sinal": sinal,
         "mercado": mercado,
         "confianca": confianca,
@@ -380,7 +436,9 @@ def analisar_jogo(stats_casa, stats_fora):
         "confianca_nota": confianca_nota
     }
 
-
+# =========================
+# HISTÓRICO E BANCA
+# =========================
 def registrar_historico(jogo, mercado, odd_usuario, odd_justa_modelo, stake):
     edge = round(((odd_usuario / odd_justa_modelo) - 1) * 100, 2) if odd_justa_modelo > 0 else 0
 
@@ -488,7 +546,9 @@ def mostrar_painel_lucro():
     with c9:
         st.metric("Greens / Reds", f"{greens} / {reds}")
 
-
+# =========================
+# GERAÇÃO DOS JOGOS
+# =========================
 def gerar_jogos():
     hoje = datetime.utcnow()
     inicio = hoje.strftime("%Y-%m-%d")
@@ -521,7 +581,13 @@ def gerar_jogos():
         stats_fora = construir_stats_time(id_fora, historico_matches)
 
         analise = analisar_jogo(stats_casa, stats_fora)
-        score = analise["prob_over15"] + analise["prob_over25"] + analise["prob_btts"] + analise["confianca_nota"]
+        score = (
+            analise["prob_over15"] +
+            analise["prob_over25"] +
+            analise["prob_btts"] +
+            analise["confianca_nota"] +
+            max(analise["prob_vitoria_casa"], analise["prob_vitoria_fora"]) / 10
+        )
 
         jogos.append({
             "jogo": f"{casa} x {fora}",
@@ -536,7 +602,9 @@ def gerar_jogos():
     jogos.sort(key=lambda x: x["score"], reverse=True)
     return jogos
 
-
+# =========================
+# ABAS
+# =========================
 tabs = st.tabs(["📊 Análise", "📒 Histórico", "💰 Painel"])
 
 with tabs[0]:
@@ -596,6 +664,21 @@ with tabs[0]:
                 with c4:
                     st.markdown('<div class="stat-box"><div class="small-title">Prob Over 1.5</div>'
                                 f'<div class="big-number">{a["prob_over15"]}%</div></div>', unsafe_allow_html=True)
+
+                st.markdown("### 🏆 Probabilidade de Resultado")
+                r1, r2, r3 = st.columns(3)
+                with r1:
+                    st.markdown('<div class="stat-box"><div class="small-title">Vitória mandante</div>'
+                                f'<div class="big-number">{a["prob_vitoria_casa"]}%</div></div>', unsafe_allow_html=True)
+                    st.write(f"Odd justa {casa}: {a['odd_justa_casa']}")
+                with r2:
+                    st.markdown('<div class="stat-box"><div class="small-title">Empate</div>'
+                                f'<div class="big-number">{a["prob_empate"]}%</div></div>', unsafe_allow_html=True)
+                    st.write(f"Odd justa empate: {a['odd_justa_empate']}")
+                with r3:
+                    st.markdown('<div class="stat-box"><div class="small-title">Vitória visitante</div>'
+                                f'<div class="big-number">{a["prob_vitoria_fora"]}%</div></div>', unsafe_allow_html=True)
+                    st.write(f"Odd justa {fora}: {a['odd_justa_fora']}")
 
                 col1, col2 = st.columns(2)
 
